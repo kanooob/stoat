@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/github/languages/top/mayudev/revcord?style=for-the-badge">
 </p>
 
-<p align="center"><b>🌉 A cord to connect your Revolt and Discord servers</b></p>
+<p align="center"><b>🌉 A cord to connect your Revolt and Discord servers(unofficial git)</b></p>
 
 🔗 A bridge for Discord and [Revolt](https://revolt.chat) with easy setup through commands, written in TypeScript using [revolt.js](https://github.com/revoltchat/revolt.js).
 
