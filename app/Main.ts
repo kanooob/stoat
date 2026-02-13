@@ -9,14 +9,12 @@ import { MappingModel } from "./models/Mapping";
 import getMappings from "./util/mappings";
 
 export class Main {
-  static mappings: Mapping[];
-  static webhooks: Webhook[];
+  static mappings: Mapping[] = [];
+  static webhooks: Webhook[] = [];
 
-  /** Cache of messages sent by the bot from Discord to Revolt */
-  static discordCache: CachedMessage[];
-
-  /** Cache of messages sent by the bot from Revolt to Discord */
-  static revoltCache: CachedMessage[];
+  /** Cache des messages pour éviter les boucles */
+  static discordCache: CachedMessage[] = [];
+  static revoltCache: CachedMessage[] = [];
 
   private bot: Bot;
 
@@ -27,95 +25,83 @@ export class Main {
     const revoltToken = process.env.REVOLT_TOKEN;
 
     if (!discordToken || !revoltToken) {
-      throw "At least one token was not provided";
+      npmlog.error("Main", "TOKEN MANQUANT : Vérifie tes variables d'environnement sur Render !");
+      throw new Error("Tokens non fournis");
     }
 
     Main.webhooks = [];
-
     Main.discordCache = [];
     Main.revoltCache = [];
   }
 
   /**
-   * Initialize Sequelize
+   * Initialisation de Sequelize (SQLite)
    */
   async initDb(): Promise<Mapping[]> {
-    const sequelize = new Sequelize({
-      dialect: "sqlite",
-      storage: "revcord.sqlite",
-      logging: false,
-    });
+    try {
+      const sequelize = new Sequelize({
+        dialect: "sqlite",
+        storage: "revcord.sqlite",
+        logging: false,
+      });
 
-    await sequelize.authenticate();
-    npmlog.info("db", "Connection has been established successfully.");
+      await sequelize.authenticate();
+      npmlog.info("db", "Connexion SQLite établie.");
 
-    // Initialize the Mapping model
-    // TODO move to a different file/method
-    MappingModel.init(
-      {
-        id: {
-          type: DataTypes.INTEGER,
-          autoIncrement: true,
-          primaryKey: true,
+      MappingModel.init(
+        {
+          id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
+          discordChannel: { type: DataTypes.STRING },
+          revoltChannel: { type: DataTypes.STRING },
+          discordChannelName: { type: DataTypes.STRING },
+          revoltChannelName: { type: DataTypes.STRING },
+          allowBots: { type: DataTypes.BOOLEAN, defaultValue: true },
         },
-        discordChannel: {
-          type: DataTypes.STRING,
-        },
-        revoltChannel: {
-          type: DataTypes.STRING,
-        },
-        discordChannelName: {
-          type: DataTypes.STRING,
-        },
-        revoltChannelName: {
-          type: DataTypes.STRING,
-        },
-        allowBots: {
-          type: DataTypes.BOOLEAN,
-          defaultValue: true,
-        },
-      },
-      { sequelize, modelName: "mapping" }
-    );
+        { sequelize, modelName: "mapping" }
+      );
 
-    // Sync
-    await sequelize.sync({ alter: true });
+      await sequelize.sync({ alter: true });
 
-    // Load mappings into memory
-    const mappingsInDb = await MappingModel.findAll({});
-    const mappings = mappingsInDb.map((mapping) => ({
-      discord: mapping.discordChannel,
-      revolt: mapping.revoltChannel,
-      allowBots: mapping.allowBots,
-    }));
-
-    return mappings;
+      const mappingsInDb = await MappingModel.findAll({});
+      return mappingsInDb.map((mapping) => ({
+        discord: mapping.discordChannel,
+        revolt: mapping.revoltChannel,
+        allowBots: mapping.allowBots,
+      }));
+    } catch (e) {
+      npmlog.error("db", "Erreur SQLite : " + e);
+      return [];
+    }
   }
 
   /**
-   * Start the Web server, Discord and Revolt bots
+   * Lancement du serveur et des bots
    */
   public async start(): Promise<void> {
     let usingJson = false;
+
+    // 1. Priorité au fichier mappings.json
     try {
-      // Try to load JSON
-      const mappings = await getMappings();
-      Main.mappings = mappings;
-      usingJson = true;
-    } catch {
-      // Query the database instead
-      try {
-        Main.mappings = await this.initDb();
-      } catch (e) {
-        npmlog.error(
-          "db",
-          "A database error occurred. If you don't know what to do, try removing the `revcord.sqlite` file (will reset all your settings)."
-        );
-        npmlog.error("db", e);
+      const jsonMappings = await getMappings();
+      if (jsonMappings && jsonMappings.length > 0) {
+        Main.mappings = jsonMappings;
+        usingJson = true;
+        npmlog.info("Main", `Fichier JSON détecté : ${jsonMappings.length} salon(s) configuré(s).`);
       }
-    } finally {
-      this.bot = new Bot(usingJson);
-      this.bot.start();
+    } catch (e) {
+      npmlog.warn("Main", "Aucun fichier mappings.json valide trouvé, passage à SQLite...");
     }
+
+    // 2. Si pas de JSON, on utilise SQLite
+    if (!usingJson) {
+      Main.mappings = await this.initDb();
+      if (Main.mappings.length === 0) {
+        npmlog.warn("Main", "Attention : Aucun mapping trouvé (ni JSON, ni DB). Le bot sera muet.");
+      }
+    }
+
+    // 3. Démarrage du bot
+    this.bot = new Bot(usingJson);
+    this.bot.start();
   }
 }
