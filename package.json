@@ -18,6 +18,9 @@
     "url": "https://github.com/mayudev/revcord/issues"
   },
   "homepage": "https://github.com/mayudev/revcord#readme",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "dependencies": {
     "@types/npmlog": "^4.1.4",
     "discord-api-types": "^0.38.1",
