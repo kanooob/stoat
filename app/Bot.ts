@@ -33,67 +33,58 @@ export class Bot {
   constructor(private usingJsonMappings: boolean) {}
 
   public async start() {
-    npmlog.info("Bot", "Démarrage des services Discord et Revolt...");
+    npmlog.info("Bot", "Lancement de la séquence de démarrage...");
+    // On lance les deux en parallèle pour éviter qu'un blocage de l'un n'empêche l'autre
     this.setupDiscordBot();
     this.setupRevoltBot();
   }
 
   setupDiscordBot() {
+    npmlog.info("Discord", "Initialisation du client...");
+    
     this.discord = new DiscordClient({
       intents: [
         GatewayIntentBits.Guilds,
-        GatewayIntentBits.MessageContent, // Assurez-vous que c'est activé sur le portail Discord !
+        GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMessages,
       ],
       allowedMentions: { parse: [] },
     });
 
-    this.discord.once("ready", () => {
-      npmlog.info(
-        "Discord",
-        `Connecté en tant que ${this.discord.user?.tag}`
-      );
-
-      this.rest = new REST().setToken(process.env.DISCORD_TOKEN!);
-      
-      // On initialise l'executor dès que Discord est prêt
-      this.executor = new UniversalExecutor(this.discord, this.revolt);
-
-      this.commands = new Collection();
-      slashCommands.map((command) => {
-        this.commands.set(command.data.name, command);
-      });
-
-      this.commandsJson = this.commands.map((command) => command.data.toJSON());
-
-      if (!this.usingJsonMappings) {
-        this.discord.guilds.cache.forEach((guild) => {
-          registerSlashCommands(this.rest, this.discord, guild.id, this.commandsJson);
-        });
-      }
-
-      // Initialisation des webhooks pour les mappings existants
-      if (Main.mappings && Main.mappings.length > 0) {
-        Main.mappings.forEach(async (mapping) => {
-          const channel = this.discord.channels.cache.get(mapping.discord);
-          try {
-            if (channel) await initiateDiscordChannel(channel, mapping);
-          } catch (e) {
-            npmlog.error("Discord", "Erreur initialisation webhook pour le salon: " + mapping.discord);
-          }
-        });
-      }
-    });
-
-    this.discord.on("interactionCreate", async (interaction) => {
-      if (!interaction.isCommand() || this.usingJsonMappings) return;
-      const command = this.commands.get(interaction.commandName);
-      if (!command) return;
+    // On définit l'événement ready AVANT de tenter le login
+    this.discord.once("ready", async () => {
+      npmlog.info("Discord", `SUCCÈS : Connecté en tant que ${this.discord.user?.tag}`);
 
       try {
-        await command.execute(interaction, this.executor);
+        this.executor = new UniversalExecutor(this.discord, this.revolt);
+        this.rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN!);
+
+        this.commands = new Collection();
+        slashCommands.forEach((command) => {
+          this.commands.set(command.data.name, command);
+        });
+
+        this.commandsJson = this.commands.map((command) => command.data.toJSON());
+
+        if (!this.usingJsonMappings) {
+          this.discord.guilds.cache.forEach((guild) => {
+            registerSlashCommands(this.rest, this.discord, guild.id, this.commandsJson);
+          });
+        }
+
+        if (Main.mappings) {
+          npmlog.info("Discord", `Initialisation de ${Main.mappings.length} salons...`);
+          for (const mapping of Main.mappings) {
+            try {
+              const channel = await this.discord.channels.fetch(mapping.discord);
+              if (channel) await initiateDiscordChannel(channel as any, mapping);
+            } catch (err) {
+              npmlog.error("Discord", `Erreur sur le salon ${mapping.discord}`);
+            }
+          }
+        }
       } catch (e) {
-        npmlog.error("Discord", "Erreur Slash Command:", e);
+        npmlog.error("Discord", "Erreur fatale dans le setup 'ready'", e);
       }
     });
 
@@ -101,27 +92,10 @@ export class Bot {
       handleDiscordMessage(this.revolt, this.discord, message);
     });
 
-    this.discord.on("messageUpdate", (oldMessage, newMessage) => {
-      if (oldMessage.author?.id === this.discord.user?.id) return;
-      const partialMessage: PartialDiscordMessage = {
-        author: oldMessage.author,
-        attachments: oldMessage.attachments,
-        channelId: oldMessage.channelId,
-        content: newMessage.content as string,
-        embeds: newMessage.embeds,
-        id: newMessage.id,
-        mentions: newMessage.mentions,
-      };
-      handleDiscordMessageUpdate(this.revolt, partialMessage);
-    });
-
-    this.discord.on("messageDelete", (message) => {
-      handleDiscordMessageDelete(this.revolt, message.id);
-    });
-
-    // Tentative de connexion avec log d'erreur
+    // Tentative de login avec debug
+    npmlog.info("Discord", "Tentative de login en cours...");
     this.discord.login(process.env.DISCORD_TOKEN).catch((err) => {
-      npmlog.error("Discord", "IMPOSSIBLE DE SE CONNECTER À DISCORD. Vérifiez le TOKEN et les INTENTS.");
+      npmlog.error("Discord", "LE LOGIN A ÉCHOUÉ !");
       npmlog.error("Discord", err);
     });
   }
@@ -130,53 +104,31 @@ export class Bot {
     this.revolt = new RevoltClient({ apiURL: process.env.API_URL, autoReconnect: true });
 
     this.revolt.once("ready", () => {
-      npmlog.info("Revolt", `Connecté en tant que ${this.revolt.user?.username}`);
-
+      npmlog.info("Revolt", `SUCCÈS : Connecté en tant que ${this.revolt.user?.username}`);
       this.revoltCommands = new Collection();
-      revoltCommands.map((command) => {
+      revoltCommands.forEach((command) => {
         this.revoltCommands.set(command.data.name, command);
       });
     });
 
     this.revolt.on("message", async (message) => {
       if (typeof message.content !== "string") return;
+      const target = Main.mappings?.find((m) => m.revolt === message.channel_id);
 
-      const target = Main.mappings?.find(
-        (mapping) => mapping.revolt === message.channel_id
-      );
-
-      if (message.content.toString().startsWith("rc!")) {
-        const args = message.content.toString().split(" ");
-        const commandName = args[0].slice("rc!".length);
-        args.shift();
-        const arg = args.join(" ");
-
+      if (message.content.startsWith("rc!")) {
         if (this.usingJsonMappings || !this.revoltCommands) return;
-
-        const command = this.revoltCommands.get(commandName);
-        if (!command) return;
-
-        // SECURITÉ : On vérifie si l'executor est prêt avant de lancer la commande
-        if (!this.executor) {
-            return message.reply("Le pont n'est pas encore prêt. Discord est peut-être en train de se connecter...");
+        const args = message.content.split(" ");
+        const command = this.revoltCommands.get(args[0].slice(3));
+        if (command && this.executor) {
+          command.execute(message, args.slice(1).join(" "), this.executor).catch(e => npmlog.error("Revolt", e));
         }
-
-        try {
-          await command.execute(message, arg, this.executor);
-        } catch (e) {
-          npmlog.error("Revolt", "Erreur commande Revolt:", e);
-        }
-      } else if (
-        target &&
-        message.author_id !== this.revolt.user?._id &&
-        (!message.author?.bot || target.allowBots)
-      ) {
+      } else if (target && message.author_id !== this.revolt.user?._id) {
         handleRevoltMessage(this.discord, this.revolt, message, target);
       }
     });
 
     this.revolt.loginBot(process.env.REVOLT_TOKEN!).catch((err) => {
-        npmlog.error("Revolt", "ERREUR CONNEXION REVOLT:", err);
+      npmlog.error("Revolt", "ERREUR CONNEXION REVOLT:", err);
     });
   }
 }
