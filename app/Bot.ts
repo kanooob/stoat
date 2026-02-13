@@ -21,13 +21,13 @@ export class Bot {
   constructor(private usingJsonMappings: boolean) {}
 
   public async start() {
-    npmlog.info("Bot", "--- DÉBUT DIAGNOSTIC ---");
+    npmlog.info("Bot", "--- DÉBUT DU DERNIER DIAGNOSTIC ---");
     
-    // Test réseau : Vérifier si la sortie vers le web est possible
+    // Test de sortie internet
     https.get('https://google.com', (res) => {
-      npmlog.info("Réseau", `Test Google: ${res.statusCode} (Internet OK)`);
+      npmlog.info("Réseau", `Connexion sortante : OK (Code ${res.statusCode})`);
     }).on('error', (e) => {
-      npmlog.error("Réseau", "INTERNET BLOQUÉ sur Render !");
+      npmlog.error("Réseau", "ERREUR : Sortie internet bloquée.");
     });
 
     this.setupDiscordBot();
@@ -35,55 +35,49 @@ export class Bot {
   }
 
   setupDiscordBot() {
-    npmlog.info("Discord", "Création du client...");
+    npmlog.info("Discord", "Initialisation du client...");
     
     this.discord = new DiscordClient({
       intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.DirectMessages, // Ajouté pour plus de stabilité
+        GatewayIntentBits.DirectMessages,
       ],
-      partials: [Partials.Channel], // Nécessaire pour certains types de messages
-      makeCache: () => new Collection(), // Désactivation du cache lourd
+      partials: [Partials.Channel, Partials.Message],
+      makeCache: () => new Collection(), 
     });
 
+    // Événement de succès
     this.discord.once("ready", () => {
-      npmlog.info("Discord", `!!! SUCCÈS TOTAL !!! Connecté : ${this.discord.user?.tag}`);
+      npmlog.info("Discord", "✅ VICTOIRE ! Le bot est en ligne.");
+      npmlog.info("Discord", `Connecté en tant que : ${this.discord.user?.tag}`);
     });
 
-    // Capture des erreurs réseau spécifiques à Discord
-    this.discord.on("error", (err) => npmlog.error("Discord", "ERREUR SOCKET:", err.message));
-    this.discord.on("debug", (msg) => {
-        // Log uniquement les étapes de connexion pour ne pas polluer
-        if(msg.toLowerCase().includes("identif") || msg.toLowerCase().includes("session")) {
-            npmlog.info("Discord-Debug", msg);
-        }
+    // Capture des messages de DEBUG (Crucial maintenant)
+    this.discord.on("debug", (info) => {
+      if (info.includes("Heartbeat") || info.includes("Identif") || info.includes("Session")) {
+        npmlog.info("Discord-Debug", info);
+      }
     });
 
-    npmlog.info("Discord", "Lancement de login()...");
+    this.discord.on("error", (err) => {
+      npmlog.error("Discord", "ERREUR DÉTECTÉE :");
+      npmlog.error("Discord", err.message);
+    });
+
+    npmlog.info("Discord", "Appel de login()...");
     const token = process.env.DISCORD_TOKEN?.trim();
-    
-    if(!token || token.length < 50) {
-        npmlog.error("Discord", "ERREUR: Le Token est vide ou invalide !");
-        return;
+
+    if (!token) {
+      npmlog.error("Discord", "Le Token est manquant dans les variables Render.");
+      return;
     }
 
-    // Sécurité : Si après 30s rien ne se passe, on signale un timeout
-    const loginTimeout = setTimeout(() => {
-        npmlog.warn("Discord", "ALERTE: Pas de réponse de Discord après 30s (Problème d'Intents ou de Token)");
-    }, 30000);
-
-    this.discord.login(token)
-      .then(() => {
-        clearTimeout(loginTimeout);
-        npmlog.info("Discord", "Promesse login() résolue avec succès.");
-      })
-      .catch((err) => {
-        clearTimeout(loginTimeout);
-        npmlog.error("Discord", "LOGIN REJETÉ PAR DISCORD :");
-        npmlog.error("Discord", err.message);
-      });
+    this.discord.login(token).catch((err) => {
+      npmlog.error("Discord", "LE LOGIN A ÉCHOUÉ :");
+      npmlog.error("Discord", err.message);
+    });
   }
 
   setupRevoltBot() {
@@ -93,11 +87,11 @@ export class Bot {
     });
 
     this.revolt.once("ready", () => {
-      npmlog.info("Revolt", `SUCCÈS : Connecté en tant que ${this.revolt.user?.username}`);
+      npmlog.info("Revolt", "✅ Revolt est connecté.");
     });
 
     this.revolt.loginBot(process.env.REVOLT_TOKEN!).catch(e => {
-        npmlog.error("Revolt", "Erreur connexion Revolt :");
+        npmlog.error("Revolt", "Erreur :");
         npmlog.error("Revolt", e.message);
     });
   }
