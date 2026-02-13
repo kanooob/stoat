@@ -2,6 +2,7 @@
   "name": "revcord",
   "version": "1.3.0",
   "description": "A discord-revolt bridge",
+  "main": "build/index.js",
   "scripts": {
     "start": "node build/index.js",
     "dev": "ts-node index.ts",
@@ -22,6 +23,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@discordjs/rest": "^2.2.0",
     "@types/npmlog": "^4.1.4",
     "discord-api-types": "^0.38.1",
     "discord.js": "14.19.1",
