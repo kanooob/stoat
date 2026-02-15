@@ -11,7 +11,6 @@ FRANCE_TZ = pytz.timezone('Europe/Paris')
 def get_fr_time_info():
     """Retourne l'heure actuelle et le décalage UTC formaté (UTC+1/UTC+2)"""
     now = datetime.now(FRANCE_TZ)
-    # Calcul du décalage en heures
     offset = now.utcoffset().total_seconds() / 3600
     utc_str = f"UTC+{int(offset)}" if offset > 0 else f"UTC{int(offset)}"
     return now, utc_str
@@ -36,12 +35,9 @@ class StoatBot(revolt.Client):
 
     async def on_ready(self):
         print(f"✅ Bot connecté sur Stoat.chat : {self.user.name}")
-        
-        # Récupération de l'heure et du fuseau (UTC+1 ou +2)
         now, utc_offset = get_fr_time_info()
         time_str = now.strftime('%H:%M:%S')
         
-        # Log de démarrage
         await self.send_log(f"🚀 **Bot Stoat en ligne !**\nHeure : `{time_str}` ({utc_offset})")
         
         try:
@@ -74,8 +70,6 @@ class StoatBot(revolt.Client):
     async def on_message(self, message: revolt.Message):
         if not message.author or message.author.bot or not message.content:
             return
-
-        print(f"📩 [{message.author.name}] : {message.content}")
 
         if not message.content.startswith("!"):
             return
@@ -121,7 +115,6 @@ class StoatBot(revolt.Client):
 
         elif cmd == "!roll":
             try:
-                # Si un argument est donné et est un chiffre, on l'utilise, sinon 6 par défaut
                 faces = int(args[0]) if args and args[0].isdigit() else 6
                 if faces < 1: faces = 6
                 resultat = random.randint(1, faces)
@@ -137,21 +130,31 @@ class StoatBot(revolt.Client):
             except Exception as e:
                 print(f"Erreur clear: {e}")
 
-# --- LANCEMENT ---
-async def main():
+# --- LANCEMENT AVEC SECURITE RECONNEXION ---
+async def start_bot():
     token = os.environ.get("REVOLT_TOKEN")
     if not token:
         print("❌ ERREUR : REVOLT_TOKEN manquant !")
         return
 
-    async with revolt.utils.client_session() as session:
-        client = StoatBot(session, token, api_url="https://api.stoat.chat")
-        print("📡 Lancement de la connexion...")
-        await client.start()
+    while True:
+        try:
+            async with revolt.utils.client_session() as session:
+                client = StoatBot(session, token, api_url="https://api.stoat.chat")
+                print("📡 Tentative de connexion à Stoat.chat...")
+                await client.start()
+        except Exception as e:
+            # Cette partie capture les erreurs 502 ou les déco en plein milieu
+            print(f"💥 Erreur de connexion : {e}")
+            print("⏳ Nouvelle tentative de reconnexion dans 20 secondes...")
+            await asyncio.sleep(20)
 
 if __name__ == "__main__":
+    # Flask tourne dans un thread séparé
     threading.Thread(target=run_flask, daemon=True).start()
+    
+    # Boucle principale asyncio
     try:
-        asyncio.run(main())
-    except Exception as e:
-        print(f"💥 Erreur : {e}")
+        asyncio.run(start_bot())
+    except KeyboardInterrupt:
+        print("Arrêt manuel du bot.")
