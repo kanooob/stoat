@@ -29,12 +29,10 @@ class StoatBot(revolt.Client):
         await self.edit_status(text=self.custom_status, presence=revolt.PresenceType.online)
         await self.send_log(f"🚀 **Bot Démarré**\nStatut : `{self.custom_status}`")
         
-        # On lance la boucle de date une seule fois au démarrage
         if not self.loop_started:
             self.loop_started = True
             asyncio.create_task(self.update_date_loop())
 
-    # --- BOUCLE DE MISE À JOUR DE LA DATE ---
     async def update_date_loop(self):
         while not self.is_closed():
             current_date = datetime.now().strftime("%d/%m/%Y")
@@ -44,10 +42,7 @@ class StoatBot(revolt.Client):
                 try:
                     await self.edit_status(text=self.custom_status, presence=revolt.PresenceType.online)
                     await self.send_log(f"📅 **Mise à jour auto** : La date est maintenant `{current_date}`")
-                except Exception as e:
-                    print(f"Erreur mise à jour statut : {e}")
-            
-            # On attend 60 secondes avant la prochaine vérification
+                except: pass
             await asyncio.sleep(60)
 
     async def send_log(self, text):
@@ -61,13 +56,11 @@ class StoatBot(revolt.Client):
         if message.author.bot: return
         auteur = message.author.name if message.author else "Inconnu"
         contenu = message.content if message.content else "*Contenu introuvable*"
-        log_txt = f"🗑️ **Message Supprimé**\n**Auteur :** {auteur}\n**Salon :** {message.channel.mention}\n**Contenu :** {contenu}"
-        await self.send_log(log_txt)
+        await self.send_log(f"🗑️ **Message Supprimé**\n**Auteur :** {auteur}\n**Salon :** {message.channel.mention}\n**Contenu :** {contenu}")
 
     async def on_message_update(self, before: revolt.Message, after: revolt.Message):
         if after.author.bot or before.content == after.content: return
-        log_txt = f"📝 **Message Modifié**\n**Auteur :** {after.author.name}\n**Ancien :** {before.content}\n**Nouveau :** {after.content}"
-        await self.send_log(log_txt)
+        await self.send_log(f"📝 **Message Modifié**\n**Auteur :** {after.author.name}\n**Ancien :** {before.content}\n**Nouveau :** {after.content}")
 
     async def on_member_join(self, member: revolt.Member):
         await self.send_log(f"📥 **Arrivée** : {member.mention}")
@@ -101,24 +94,47 @@ class StoatBot(revolt.Client):
         cmd = parts[0].lower()
         args = parts[1:]
 
-        if cmd == "!setstatus":
-            if not message.author.get_permissions().manage_server:
-                return await message.reply("❌ Permission refusée.")
-            new_status = " ".join(args)
-            self.custom_status = new_status
-            await self.edit_status(text=new_status, presence=revolt.PresenceType.online)
-            await message.reply(f"✅ Statut : `{new_status}`")
+        if cmd == "!help":
+            help_msg = (
+                "### 🦦 **Stoat Bot - Menu d'aide**\n"
+                "--- \n"
+                "🎮 **Divertissement**\n"
+                "> `!8ball <question>` : Interroge l'hermine magique.\n"
+                "> `!roll <nb>` : Lance un dé (ex: !roll 100).\n"
+                "> `!gif <texte>` : Cherche un GIF sur Tenor.\n\n"
+                "🛠️ **Utilitaires**\n"
+                "> `!ping` : Affiche la latence du serveur.\n"
+                "> `!uptime` : Temps depuis le dernier réveil.\n"
+                "> `!avatar <@user>` : Vole l'avatar d'un membre.\n"
+                "> `!serverinfo` : Infos sur le serveur actuel.\n\n"
+                "🛡️ **Modération**\n"
+                "> `!clear <nb>` : Supprime les messages (Modo).\n"
+                "> `!setstatus <texte>` : Change le statut (Admin).\n"
+                "--- \n"
+                "*Bot fait par Galaxie_s9*"
+            )
+            await message.reply(help_msg)
 
         elif cmd == "!ping":
             st = time.time()
-            m = await message.reply("Calcul...")
+            m = await message.reply("🏓 Calcul...")
             lt = round((time.time() - st) * 1000)
-            await m.edit(content=f"Pong ! 🏓 Latence : **{lt}ms**")
+            await m.edit(content=f"🏓 **Pong !** Latence : `{lt}ms`")
 
         elif cmd == "!8ball":
-            if not args: return await message.reply("Pose-moi une question !")
+            if not args: return await message.reply("🔮 Pose-moi une question !")
             reponses = ["C'est certain 🦦", "Sans aucun doute", "Demande plus tard", "Ma réponse est non", "Très probable"]
             await message.reply(f"🎱 **Réponse :** {random.choice(reponses)}")
+
+        elif cmd == "!roll":
+            try:
+                max_v = int(args[0]) if args else 6
+                await message.reply(f"🎲 **Dé :** `{random.randint(1, max_v)}` (1-{max_v})")
+            except: await message.reply("❌ Nombre invalide !")
+
+        elif cmd == "!gif":
+            search = "+".join(args) if args else "otter"
+            await message.reply(f"🎬 **GIF :** https://tenor.com/search/{search}-gifs")
 
         elif cmd == "!uptime":
             upt = int(time.time() - self.start_timestamp)
@@ -127,17 +143,26 @@ class StoatBot(revolt.Client):
 
         elif cmd == "!avatar":
             u = message.mentions[0] if message.mentions else message.author
-            await message.reply(f"📷 **{u.name}** : {u.avatar_url}")
+            await message.reply(f"📷 **Avatar de {u.name}** :\n{u.avatar_url}")
+
+        elif cmd == "!serverinfo":
+            s = message.server
+            await message.reply(f"🏘️ **Serveur :** {s.name}\n👤 **Owner :** <@{s.owner_id}>\n👥 **Membres :** `{len(s.members)}`")
 
         elif cmd == "!clear":
             if not message.author.get_permissions().manage_messages: return
             try:
                 amt = int(args[0]) if args else 10
                 await message.channel.clear(amt)
+                await self.send_log(f"🧹 **Nettoyage** : {amt} messages par {message.author.name}")
             except: pass
 
-        elif cmd == "!help":
-            await message.reply("**Commandes :**\n`!ping`, `!uptime`, `!avatar`, `!clear`, `!8ball`, `!setstatus`")
+        elif cmd == "!setstatus":
+            if not message.author.get_permissions().manage_server: return
+            new_status = " ".join(args) if args else f"{self.last_date} | !help"
+            self.custom_status = new_status
+            await self.edit_status(text=new_status, presence=revolt.PresenceType.online)
+            await message.reply(f"✅ Statut mis à jour.")
 
 # --- LANCEMENT ---
 async def start_bot():
