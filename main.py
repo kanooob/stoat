@@ -8,8 +8,13 @@ import config
 # Configuration du fuseau horaire français
 FRANCE_TZ = pytz.timezone('Europe/Paris')
 
-def get_fr_time():
-    return datetime.now(FRANCE_TZ)
+def get_fr_time_info():
+    """Retourne l'heure actuelle et le décalage UTC formaté (UTC+1/UTC+2)"""
+    now = datetime.now(FRANCE_TZ)
+    # Calcul du décalage en heures
+    offset = now.utcoffset().total_seconds() / 3600
+    utc_str = f"UTC+{int(offset)}" if offset > 0 else f"UTC{int(offset)}"
+    return now, utc_str
 
 # --- PARTIE WEB (FLASK) ---
 app = Flask(__name__)
@@ -18,7 +23,6 @@ def home():
     return "Stoat Bot is running"
 
 def run_flask():
-    # Render a besoin que ce port soit ouvert
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
@@ -27,27 +31,30 @@ class StoatBot(revolt.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.start_timestamp = time.time()
-        self.last_date = get_fr_time().strftime("%d/%m/%Y")
+        now, _ = get_fr_time_info()
+        self.last_date = now.strftime("%d/%m/%Y")
 
     async def on_ready(self):
-        print(f"✅ Bot connecté sur Stoat.chat en tant que : {self.user.name}")
+        print(f"✅ Bot connecté sur Stoat.chat : {self.user.name}")
         
-        # Log de démarrage dans le salon de logs
-        await self.send_log(f"🚀 **Bot Stoat en ligne !**\nHeure FR : `{get_fr_time().strftime('%H:%M:%S')}`")
+        # Récupération de l'heure et du fuseau (UTC+1 ou +2)
+        now, utc_offset = get_fr_time_info()
+        time_str = now.strftime('%H:%M:%S')
         
-        # Mise à jour du statut initial
+        # Log de démarrage mis à jour selon ta demande
+        await self.send_log(f"🚀 **Bot Stoat en ligne !**\nHeure : `{time_str}` ({utc_offset})")
+        
         try:
             await self.edit_status(text=f"{self.last_date} | !help", presence=revolt.PresenceType.online)
         except: pass
         
-        # Lancement de la boucle de changement de date
         asyncio.create_task(self.date_checker())
 
     async def date_checker(self):
-        """Boucle qui vérifie le changement de jour chaque minute."""
         while True:
             await asyncio.sleep(60)
-            now_date = get_fr_time().strftime("%d/%m/%Y")
+            now, _ = get_fr_time_info()
+            now_date = now.strftime("%d/%m/%Y")
             if now_date != self.last_date:
                 self.last_date = now_date
                 try:
@@ -59,16 +66,15 @@ class StoatBot(revolt.Client):
         channel = self.get_channel(config.LOGS_CHANNEL_ID)
         if channel:
             try:
-                ts = get_fr_time().strftime("%H:%M:%S")
+                now, _ = get_fr_time_info()
+                ts = now.strftime("%H:%M:%S")
                 await channel.send(f"🕒 `{ts}` | {text}")
             except: pass
 
     async def on_message(self, message: revolt.Message):
-        # Ignore les bots et les messages vides
         if not message.author or message.author.bot or not message.content:
             return
 
-        # Très important pour débugger : on affiche tout dans la console Render
         print(f"📩 [{message.author.name}] : {message.content}")
 
         if not message.content.startswith("!"):
@@ -78,7 +84,6 @@ class StoatBot(revolt.Client):
         cmd = parts[0].lower()
         args = parts[1:]
 
-        # --- COMMANDES ---
         if cmd == "!help":
             await message.reply("### 🦦 **Stoat Bot Help**\n---\n`!ping`, `!avatar`, `!uptime`, `!8ball`, `!roll`, `!clear`")
 
@@ -90,8 +95,7 @@ class StoatBot(revolt.Client):
 
         elif cmd == "!avatar":
             u = message.mentions[0] if message.mentions else message.author
-            asset = u.avatar
-            url = asset.url if asset else "Cet utilisateur n'a pas d'avatar."
+            url = u.avatar.url if u.avatar else "Cet utilisateur n'a pas d'avatar."
             await message.reply(f"📷 **Avatar de {u.name}** :\n{url}")
 
         elif cmd == "!uptime":
@@ -116,7 +120,7 @@ class StoatBot(revolt.Client):
 async def main():
     token = os.environ.get("REVOLT_TOKEN")
     if not token:
-        print("❌ ERREUR : Le token REVOLT_TOKEN est introuvable !")
+        print("❌ ERREUR : REVOLT_TOKEN manquant !")
         return
 
     async with revolt.utils.client_session() as session:
@@ -125,12 +129,8 @@ async def main():
         await client.start()
 
 if __name__ == "__main__":
-    # 1. On lance le serveur Web en arrière-plan
-    t = threading.Thread(target=run_flask, daemon=True)
-    t.start()
-    
-    # 2. On lance le bot
+    threading.Thread(target=run_flask, daemon=True).start()
     try:
         asyncio.run(main())
     except Exception as e:
-        print(f"💥 Erreur lors de l'exécution : {e}")
+        print(f"💥 Erreur : {e}")
