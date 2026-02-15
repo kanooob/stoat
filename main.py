@@ -36,22 +36,20 @@ class StoatBot(revolt.Client):
     async def on_update_date_loop(self):
         while not self.is_closed():
             current_date = datetime.now().strftime("%d/%m/%Y")
-            # Si la date a changé depuis la dernière vérification
             if current_date != self.last_date:
                 self.last_date = current_date
                 self.custom_status = f"{current_date} | !help"
                 await self.edit_status(text=self.custom_status, presence=revolt.PresenceType.online)
                 await self.send_log(f"📅 **Mise à jour auto** : La date est maintenant `{current_date}`")
             
-            await asyncio.sleep(60) # Vérifie toutes les minutes
+            await asyncio.sleep(60)
 
-    # --- FONCTION LOGS ---
     async def send_log(self, text):
         channel = self.get_channel(config.LOGS_CHANNEL_ID)
         if channel:
             await channel.send(f"🕒 `{time.strftime('%H:%M:%S')}` | {text}")
 
-    # --- LOGS DE MESSAGES ---
+    # --- ÉVÉNEMENTS ---
     async def on_message_delete(self, message: revolt.Message):
         if message.author.bot: return
         auteur = message.author.name if message.author else "Inconnu"
@@ -64,7 +62,6 @@ class StoatBot(revolt.Client):
         log_txt = f"📝 **Message Modifié**\n**Auteur :** {after.author.name}\n**Ancien :** {before.content}\n**Nouveau :** {after.content}"
         await self.send_log(log_txt)
 
-    # --- ÉVÉNEMENTS MEMBRES ---
     async def on_member_join(self, member: revolt.Member):
         await self.send_log(f"📥 **Arrivée** : {member.mention}")
         channel = self.get_channel(config.WELCOME_CHANNEL_ID)
@@ -78,7 +75,6 @@ class StoatBot(revolt.Client):
     async def on_member_leave(self, server: revolt.Server, user: revolt.User):
         await self.send_log(f"📤 **Départ** : {user.name}")
 
-    # --- STARBOARD ---
     async def on_reaction_add(self, message: revolt.Message, user: revolt.User, emoji_id: str):
         if emoji_id == config.STAR_EMOJI:
             msg = await message.channel.fetch_message(message.id)
@@ -114,7 +110,9 @@ class StoatBot(revolt.Client):
 
         elif cmd == "!8ball":
             if not args: return await message.reply("Pose-moi une question !")
-            await message.reply(f"🎱 **Réponse :** {random.choice(['C\'est certain 🦦', 'Sans aucun doute', 'Demande plus tard', 'Ma réponse est non', 'Très probable'])}")
+            # On définit la liste ici pour éviter le bug du backslash
+            reponses = ["C'est certain 🦦", "Sans aucun doute", "Demande plus tard", "Ma réponse est non", "Très probable"]
+            await message.reply(f"🎱 **Réponse :** {random.choice(reponses)}")
 
         elif cmd == "!uptime":
             upt = int(time.time() - self.start_timestamp)
