@@ -4,129 +4,72 @@ import threading
 import random
 from flask import Flask
 import revolt
-import config  # Importe tes IDs depuis config.py
+import config
 
-# --- PARTIE WEB (Indispensable pour Render & UptimeRobot) ---
+# --- PARTIE WEB ---
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return """
-    <body style="background:#121212;color:#00d1b2;text-align:center;padding:50px;font-family:sans-serif;">
-        <h1 style="border:2px solid #00d1b2;display:inline-block;padding:20px;border-radius:15px;">🦦 Stoat Bot : Actif</h1>
-        <p style="font-size:1.2em;">L'hermine est en ligne et surveille Revolt.</p>
-    </body>
-    """
+    return "🦦 Stoat Bot est en ligne !"
 
 def run_flask():
-    # Render définit automatiquement un PORT, sinon on utilise 8080
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+    # Render utilise souvent le port 10000 par défaut
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
-# --- LE BOT STOAT (REVOLT) ---
+# --- LE BOT STOAT ---
 class StoatBot(revolt.Client):
-    
     async def on_ready(self):
-        print(f"✅ Connecté en tant que {self.user.name}")
-        print("🦦 L'hermine est sortie de son terrier !")
+        print("✅ L'hermine est sortie de son terrier !")
+        print(f"Connecté en tant que : {self.user.name}")
 
-    # --- SYSTÈME D'ACCUEIL ---
     async def on_member_join(self, member: revolt.Member):
         channel = self.get_channel(config.WELCOME_CHANNEL_ID)
         if channel:
             count = len(member.server.members)
-            # Envoi du message configuré
             await channel.send(config.WELCOME_MESSAGE.format(user=member.mention, count=count))
         
-        # Attribution automatique des rôles
         for role_id in config.AUTO_ROLES:
-            try:
-                await member.add_role(role_id)
-            except Exception as e:
-                print(f"⚠️ Erreur Auto-Role ({role_id}) : {e}")
+            try: await member.add_role(role_id)
+            except Exception as e: print(f"Erreur rôle: {e}")
 
-    # --- COMMANDES ---
     async def on_message(self, message: revolt.Message):
-        # On ignore les messages des bots et ceux qui ne commencent pas par !
         if message.author.bot or not message.content.startswith("!"):
             return
 
-        parts = message.content.split(" ")
-        base = parts[0].lower()
-
-        # --- COMMANDES FUN ---
-        if base == "!ping":
+        content = message.content.lower()
+        
+        if content == "!ping":
             await message.reply("Pong ! 🦦")
+        
+        elif content == "!coinflip":
+            await message.reply(f"🪙 C'est **{random.choice(['Pile', 'Face'])}** !")
 
-        elif base == "!coinflip":
-            res = random.choice(["Pile", "Face"])
-            await message.reply(f"🪙 La pièce tourne... et tombe sur : **{res}** !")
-
-        elif base == "!avatar":
-            user = message.mentions[0] if message.mentions else message.author
-            await message.reply(f"📷 Avatar de **{user.name}** : {user.avatar_url}")
-
-        elif base == "!serverinfo":
-            s = message.server
-            await message.reply(f"🏠 **Serveur :** {s.name}\n👥 **Membres :** {len(s.members)}\n🆔 **ID :** `{s.id}`")
-
-        # --- COMMANDES MODÉRATION (SÉCURISÉES) ---
-        elif base == "!clear":
-            if not message.author.get_permissions().manage_messages:
-                return await message.reply("❌ Tu n'as pas la permission de gérer les messages.")
-            
-            try:
-                amount = int(parts[1]) if len(parts) > 1 else 10
-                amount = min(amount, 100) # Limite de sécurité
-                await message.channel.clear(amount)
-                await message.channel.send(f"🧹 **{amount}** messages balayés !", delete_after=5)
-            except:
-                await message.reply("Usage : `!clear [nombre]`")
-
-        elif base == "!kick":
-            if not message.author.get_permissions().kick_members:
-                return await message.reply("❌ Permission insuffisante pour expulser.")
-            
-            if message.mentions:
-                target = message.mentions[0]
-                try:
-                    await target.kick()
-                    await message.reply(f"🔨 **{target.name}** a été expulsé.")
-                except:
-                    await message.reply("❌ Impossible d'expulser ce membre.")
-            else:
-                await message.reply("Usage : `!kick @user`")
-
-        elif base == "!help":
-            help_text = (
-                "**📜 Liste des commandes :**\n"
-                "`!ping` - Test de réponse\n"
-                "`!coinflip` - Pile ou Face\n"
-                "`!avatar` - Voir l'avatar de quelqu'un\n"
-                "`!serverinfo` - Infos sur le serveur\n"
-                "`!clear [nb]` - Supprimer des messages (Modo)\n"
-                "`!kick @user` - Expulser un membre (Modo)"
-            )
-            await message.reply(help_text)
+        elif content == "!help":
+            await message.reply("Commandes : `!ping`, `!coinflip`, `!avatar`, `!serverinfo`, `!clear`, `!kick`")
 
 # --- LANCEMENT ---
-async def start():
+async def start_bot():
     token = os.environ.get("REVOLT_TOKEN")
     if not token:
-        print("❌ ERREUR : La variable d'environnement REVOLT_TOKEN est vide !")
+        print("❌ ERREUR : REVOLT_TOKEN manquant !")
         return
 
-    # Utilisation de la session client moderne pour revolt.py
+    # Utilisation de l'API Stoat (anciennement Revolt)
+    # Si l'URL par défaut ne répond pas, on force celle de stoat
     async with revolt.utils.client_session() as session:
-        client = StoatBot(session, token)
+        client = StoatBot(session, token, api_url="https://api.stoat.chat")
         await client.start()
 
+def main():
+    # Lancer Flask dans un thread pour ne pas bloquer le bot
+    t = threading.Thread(target=run_flask)
+    t.daemon = True
+    t.start()
+
+    # Lancer le bot de manière asynchrone
+    asyncio.run(start_bot())
+
 if __name__ == "__main__":
-    # Lancement du serveur Web Flask (Thread séparé)
-    threading.Thread(target=run_flask, daemon=True).start()
-    
-    # Lancement du bot Revolt
-    try:
-        asyncio.run(start())
-    except KeyboardInterrupt:
-        print("🔌 Déconnexion...")
+    main()
