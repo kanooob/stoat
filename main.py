@@ -41,7 +41,7 @@ class StoatBot(revolt.Client):
         now, utc_offset = get_fr_time_info()
         time_str = now.strftime('%H:%M:%S')
         
-        # Log de démarrage mis à jour selon ta demande
+        # Log de démarrage
         await self.send_log(f"🚀 **Bot Stoat en ligne !**\nHeure : `{time_str}` ({utc_offset})")
         
         try:
@@ -94,7 +94,6 @@ class StoatBot(revolt.Client):
                 "\n"
                 "🛠️ **Utilitaires**\n"
                 "> `!ping` : Vérifie la latence du bot.\n"
-                "> `!avatar [@user]` : Affiche l'avatar d'un membre.\n"
                 "> `!uptime` : Affiche le temps depuis l'allumage.\n"
                 "\n"
                 "🛡️ **Modération**\n"
@@ -109,11 +108,6 @@ class StoatBot(revolt.Client):
             m = await message.reply("🏓...")
             latency = round((time.time() - s) * 1000)
             await m.edit(content=f"🏓 Pong ! `{latency}ms`")
-
-        elif cmd == "!avatar":
-            u = message.mentions[0] if message.mentions else message.author
-            url = u.avatar.url if u.avatar else "Cet utilisateur n'a pas d'avatar."
-            await message.reply(f"📷 **Avatar de {u.name}** :\n{url}")
 
         elif cmd == "!uptime":
             upt = int(time.time() - self.start_timestamp)
