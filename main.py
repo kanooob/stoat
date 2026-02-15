@@ -11,14 +11,13 @@ bot_stats = {
     "connected_to_stoat": False,
     "last_command": "En attente...",
     "latency": "Calcul en cours...",
-    "start_time": time.time()  # Enregistre l'heure de lancement global
+    "start_time": time.time()
 }
 
 # Configuration du fuseau horaire français
 FRANCE_TZ = pytz.timezone('Europe/Paris')
 
 def get_fr_time_info():
-    """Retourne l'heure actuelle et le décalage UTC formaté (UTC+1/UTC+2)"""
     now = datetime.now(FRANCE_TZ)
     offset = now.utcoffset().total_seconds() / 3600
     utc_str = f"UTC+{int(offset)}" if offset > 0 else f"UTC{int(offset)}"
@@ -33,17 +32,14 @@ def home():
     status_stoat = "✅ Connecté" if is_connected else "❌ Déconnecté (Reconnexion...)"
     color = "#2ecc71" if is_connected else "#e74c3c"
     
-    # Calcul de l'uptime pour l'affichage web
     upt = int(time.time() - bot_stats["start_time"])
     hours, remainder = divmod(upt, 3600)
     minutes, seconds = divmod(remainder, 60)
     uptime_str = f"{hours}h {minutes}m {seconds}s"
 
-    # Favicon dynamique
     favicon_color = "2ecc71" if is_connected else "e74c3c"
     favicon_url = f"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%23{favicon_color}'/></svg>"
     
-    # Son d'alerte
     alert_script = ""
     if not is_connected:
         alert_script = """
@@ -92,7 +88,7 @@ def run_flask():
 class StoatBot(revolt.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.start_timestamp = bot_stats["start_time"] # Utilise le timestamp partagé
+        self.start_timestamp = bot_stats["start_time"]
         now, _ = get_fr_time_info()
         self.last_date = now.strftime("%d/%m/%Y")
 
@@ -112,7 +108,6 @@ class StoatBot(revolt.Client):
         asyncio.create_task(self.auto_reconnect_task())
 
     async def auto_reconnect_task(self):
-        """Force une déconnexion toutes les 1h pour rafraîchir la session"""
         await asyncio.sleep(3600)
         print("🔄 Reconnexion programmée (1h écoulée)...")
         await self.stop()
@@ -141,14 +136,12 @@ class StoatBot(revolt.Client):
     async def on_message(self, message: revolt.Message):
         if not message.author or message.author.bot or not message.content:
             return
-
         if not message.content.startswith("!"):
             return
         
         parts = message.content.split(" ")
         cmd = parts[0].lower()
         args = parts[1:]
-
         bot_stats["last_command"] = cmd
 
         if cmd == "!help":
@@ -204,7 +197,7 @@ class StoatBot(revolt.Client):
             except Exception as e:
                 print(f"Erreur clear: {e}")
 
-# --- LANCEMENT AVEC SECURITE RECONNEXION ---
+# --- LANCEMENT OPTIMISÉ ---
 async def start_bot():
     token = os.environ.get("REVOLT_TOKEN")
     if not token:
@@ -213,15 +206,19 @@ async def start_bot():
 
     while True:
         bot_stats["connected_to_stoat"] = False
+        # Utilisation d'un gestionnaire de contexte pour s'assurer que la session se ferme proprement
         try:
             async with revolt.utils.client_session() as session:
                 client = StoatBot(session, token, api_url="https://api.stoat.chat")
                 print("📡 Tentative de connexion à Stoat.chat...")
+                # Cette ligne attend que le bot s'arrête (soit par erreur, soit par l'auto-reconnect)
                 await client.start()
         except Exception as e:
-            print(f"💥 Erreur détectée : {e}")
-            print("⏳ Nouvelle tentative dans 20 secondes...")
-            await asyncio.sleep(20)
+            print(f"💥 Session interrompue : {e}")
+        
+        # Pause de sécurité avant de recréer une session toute neuve
+        print("⏳ Nettoyage et reconnexion dans 15 secondes...")
+        await asyncio.sleep(15)
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
@@ -229,4 +226,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(start_bot())
     except KeyboardInterrupt:
-        print("Arrêt manuel du bot.")
+        print("Arrêt manuel.")
