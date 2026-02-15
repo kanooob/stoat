@@ -1,14 +1,22 @@
 import os, asyncio, threading, random, time
 from datetime import datetime
+import pytz  # Importation pour la gestion du fuseau horaire
 from flask import Flask
 import revolt
 import config
+
+# Configuration du fuseau horaire français
+FRANCE_TZ = pytz.timezone('Europe/Paris')
+
+def get_fr_time():
+    """Retourne l'heure actuelle en France (gère été/hiver automatiquement)."""
+    return datetime.now(FRANCE_TZ)
 
 # --- PARTIE WEB ---
 app = Flask(__name__)
 @app.route('/')
 def home(): 
-    return "<body style='background:#121212;color:#00d1b2;text-align:center;padding:50px;font-family:sans-serif;'><h1>🦦 Stoat Bot : Actif</h1><p>Surveillance et Logs en cours...</p></body>"
+    return "<body style='background:#121212;color:#00d1b2;text-align:center;padding:50px;font-family:sans-serif;'><h1>🦦 Stoat Bot : Actif</h1><p>Fuseau horaire : Europe/Paris</p></body>"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -20,15 +28,15 @@ class StoatBot(revolt.Client):
         super().__init__(*args, **kwargs)
         self.start_timestamp = time.time()
         self.starboard_cache = set()
-        self.last_date = datetime.now().strftime("%d/%m/%Y")
+        self.last_date = get_fr_time().strftime("%d/%m/%Y")
         self.custom_status = f"{self.last_date} | !help"
         self.loop_started = False
 
     async def on_ready(self):
-        print(f"✅ Connecté : {self.user.name}")
+        print(f"✅ Connecté : {self.user.name} (Heure FR)")
         
-        # Log d'allumage
-        await self.send_log(f"🚀 **Bot Stoat en ligne !**\nStatut : `{self.custom_status}`\nAPI : `Stoat.chat`")
+        # Log d'allumage avec l'heure FR
+        await self.send_log(f"🚀 **Bot Stoat en ligne !**\nHeure locale : `{get_fr_time().strftime('%H:%M:%S')}`\nStatut : `{self.custom_status}`")
         
         try:
             await self.edit_status(text=self.custom_status, presence=revolt.PresenceType.online)
@@ -41,7 +49,7 @@ class StoatBot(revolt.Client):
     async def update_date_loop(self):
         while True:
             try:
-                current_date = datetime.now().strftime("%d/%m/%Y")
+                current_date = get_fr_time().strftime("%d/%m/%Y")
                 if current_date != self.last_date:
                     self.last_date = current_date
                     if "| !help" in self.custom_status:
@@ -55,14 +63,15 @@ class StoatBot(revolt.Client):
         channel = self.get_channel(config.LOGS_CHANNEL_ID)
         if channel:
             try:
-                ts = datetime.now().strftime("%H:%M:%S")
+                # Utilisation de l'heure française pour les logs
+                ts = get_fr_time().strftime("%H:%M:%S")
                 await channel.send(f"🕒 `{ts}` | {text}")
             except: pass
 
     # --- ÉVÉNEMENTS ---
     async def on_message_delete(self, message: revolt.Message):
         if not message.author or message.author.bot: return
-        log = f"🗑️ **Message Supprimé**\n**Auteur :** {message.author.name}\n**Salon :** {message.channel.mention}\n**Contenu :** {message.content or '*Contenu vide ou image*'}"
+        log = f"🗑️ **Message Supprimé**\n**Auteur :** {message.author.name}\n**Salon :** {message.channel.mention}\n**Contenu :** {message.content or '*Vide*'}"
         await self.send_log(log)
 
     async def on_message_update(self, before: revolt.Message, after: revolt.Message):
@@ -81,9 +90,6 @@ class StoatBot(revolt.Client):
         for r_id in config.AUTO_ROLES:
             try: await member.add_role(r_id)
             except: pass
-
-    async def on_member_leave(self, server: revolt.Server, user: revolt.User):
-        await self.send_log(f"📤 **Départ** : {user.name}")
 
     # --- COMMANDES ---
     async def on_message(self, message: revolt.Message):
