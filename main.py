@@ -10,7 +10,8 @@ bot_stats = {
     "online": True,
     "connected_to_stoat": False,
     "last_command": "En attente...",
-    "latency": "Calcul en cours..."
+    "latency": "Calcul en cours...",
+    "start_time": time.time()  # Enregistre l'heure de lancement global
 }
 
 # Configuration du fuseau horaire français
@@ -32,25 +33,28 @@ def home():
     status_stoat = "✅ Connecté" if is_connected else "❌ Déconnecté (Reconnexion...)"
     color = "#2ecc71" if is_connected else "#e74c3c"
     
-    # Génération du favicon dynamique (Data URI)
-    # Cercle vert si connecté, rouge si déconnecté
+    # Calcul de l'uptime pour l'affichage web
+    upt = int(time.time() - bot_stats["start_time"])
+    hours, remainder = divmod(upt, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    uptime_str = f"{hours}h {minutes}m {seconds}s"
+
+    # Favicon dynamique
     favicon_color = "2ecc71" if is_connected else "e74c3c"
     favicon_url = f"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%23{favicon_color}'/></svg>"
     
-    # Script pour le son d'alerte (joue si déconnecté)
+    # Son d'alerte
     alert_script = ""
     if not is_connected:
         alert_script = """
         <script>
-            // Joue un son d'alerte système court
             const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioCtx.createOscillator();
             const gainNode = audioCtx.createGain();
             oscillator.connect(gainNode);
             gainNode.connect(audioCtx.destination);
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); // Note LA
-            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
             oscillator.start();
             oscillator.stop(audioCtx.currentTime + 0.2);
         </script>
@@ -69,6 +73,7 @@ def home():
                 <hr style="border: 0; border-top: 1px solid #444;">
                 <p>🌐 <b>Bot en ligne :</b> ✅ Oui</p>
                 <p>📡 <b>Connexion Stoat :</b> <span style="color: {color};">{status_stoat}</span></p>
+                <p>🕒 <b>Uptime :</b> {uptime_str}</p>
                 <p>⚡ <b>Dernière commande :</b> <code style="background: #000; padding: 3px 7px; border-radius: 5px;">{bot_stats['last_command']}</code></p>
                 <p>🏓 <b>Ping :</b> <span style="color: #3498db;">{bot_stats['latency']}</span></p>
                 <br>
@@ -87,7 +92,7 @@ def run_flask():
 class StoatBot(revolt.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.start_timestamp = time.time()
+        self.start_timestamp = bot_stats["start_time"] # Utilise le timestamp partagé
         now, _ = get_fr_time_info()
         self.last_date = now.strftime("%d/%m/%Y")
 
@@ -174,7 +179,7 @@ class StoatBot(revolt.Client):
             await m.edit(content=f"🏓 Pong ! `{latency}ms`")
 
         elif cmd == "!uptime":
-            upt = int(time.time() - self.start_timestamp)
+            upt = int(time.time() - bot_stats["start_time"])
             h, m = upt // 3600, (upt % 3600) // 60
             await message.reply(f"🕒 En ligne depuis : **{h}h {m}m**.")
 
