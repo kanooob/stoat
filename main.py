@@ -4,7 +4,7 @@ from flask import Flask
 import revolt
 import config
 
-# --- PARTIE WEB (Keep-Alive) ---
+# --- PARTIE WEB ---
 app = Flask(__name__)
 @app.route('/')
 def home(): 
@@ -25,193 +25,138 @@ class StoatBot(revolt.Client):
         self.loop_started = False
 
     async def on_ready(self):
-        print(f"✅ Connecté en tant que : {self.user.name}")
+        print(f"✅ Connecté : {self.user.name}")
         try:
             await self.edit_status(text=self.custom_status, presence=revolt.PresenceType.online)
         except: pass
-        
-        await self.send_log(f"🚀 **Bot Démarré**\nStatut actuel : `{self.custom_status}`")
         
         if not self.loop_started:
             self.loop_started = True
             asyncio.create_task(self.update_date_loop())
 
-    # --- LOGIQUE AUTOMATIQUE ---
     async def update_date_loop(self):
-        """Boucle qui met à jour la date dans le statut à minuit."""
-        while not self.is_closed():
-            current_date = datetime.now().strftime("%d/%m/%Y")
-            if current_date != self.last_date:
-                self.last_date = current_date
-                # On ne met à jour que si l'utilisateur n'a pas mis un statut perso via !setstatus
-                if "| !help" in self.custom_status or self.custom_status == "":
-                    self.custom_status = f"{current_date} | !help"
-                    try:
+        # Correction : On utilise une boucle simple, la déconnexion est gérée par start()
+        while True:
+            try:
+                current_date = datetime.now().strftime("%d/%m/%Y")
+                if current_date != self.last_date:
+                    self.last_date = current_date
+                    if "| !help" in self.custom_status:
+                        self.custom_status = f"{current_date} | !help"
                         await self.edit_status(text=self.custom_status, presence=revolt.PresenceType.online)
-                        await self.send_log(f"📅 **Mise à jour auto** : Statut actualisé au `{current_date}`")
-                    except: pass
+                        await self.send_log(f"📅 **Mise à jour auto** : `{current_date}`")
+            except:
+                pass
             await asyncio.sleep(60)
 
     async def send_log(self, text):
-        """Envoie un message dans le salon de logs défini dans config.py."""
         channel = self.get_channel(config.LOGS_CHANNEL_ID)
         if channel:
-            try: 
-                timestamp = datetime.now().strftime("%H:%M:%S")
-                await channel.send(f"🕒 `{timestamp}` | {text}")
+            try:
+                ts = datetime.now().strftime("%H:%M:%S")
+                await channel.send(f"🕒 `{ts}` | {text}")
             except: pass
 
     # --- ÉVÉNEMENTS ---
     async def on_message_delete(self, message: revolt.Message):
-        if message.author.bot: return
-        auteur = message.author.name if message.author else "Inconnu"
-        contenu = message.content if message.content else "*Contenu vide ou média*"
-        await self.send_log(f"🗑️ **Message Supprimé**\n**Auteur :** {auteur}\n**Salon :** {message.channel.mention}\n**Contenu :** {contenu}")
+        if not message.author or message.author.bot: return
+        await self.send_log(f"🗑️ **Message Supprimé**\n**Auteur :** {message.author.name}\n**Salon :** {message.channel.mention}\n**Contenu :** {message.content or '*Vide*'}")
 
     async def on_message_update(self, before: revolt.Message, after: revolt.Message):
-        if after.author.bot or before.content == after.content: return
+        if not after.author or after.author.bot or before.content == after.content: return
         await self.send_log(f"📝 **Message Modifié**\n**Auteur :** {after.author.name}\n**Ancien :** {before.content}\n**Nouveau :** {after.content}")
 
     async def on_member_join(self, member: revolt.Member):
         await self.send_log(f"📥 **Arrivée** : {member.mention}")
         channel = self.get_channel(config.WELCOME_CHANNEL_ID)
         if channel:
-            count = len(member.server.members)
-            try: await channel.send(config.WELCOME_MESSAGE.format(user=member.mention, count=count))
+            try: await channel.send(config.WELCOME_MESSAGE.format(user=member.mention, count=len(member.server.members)))
             except: pass
         for r_id in config.AUTO_ROLES:
             try: await member.add_role(r_id)
             except: pass
-
-    async def on_member_leave(self, server: revolt.Server, user: revolt.User):
-        await self.send_log(f"📤 **Départ** : {user.name}")
 
     async def on_reaction_add(self, message: revolt.Message, user: revolt.User, emoji_id: str):
         if emoji_id == config.STAR_EMOJI:
             msg = await message.channel.fetch_message(message.id)
             count = msg.reactions.get(config.STAR_EMOJI, 0)
             if count >= config.STARBOARD_LIMIT and msg.id not in self.starboard_cache:
-                star_channel = self.get_channel(config.STARBOARD_CHANNEL_ID)
-                if star_channel:
+                sc = self.get_channel(config.STARBOARD_CHANNEL_ID)
+                if sc:
                     self.starboard_cache.add(msg.id)
-                    await star_channel.send(f"🌟 **Starboard** | De {msg.author.mention} dans {msg.channel.mention}\n\n{msg.content}")
+                    await sc.send(f"🌟 **Starboard** | {msg.author.mention}\n\n{msg.content}")
 
     # --- COMMANDES ---
     async def on_message(self, message: revolt.Message):
-        if message.author.bot or not message.content.startswith("!"):
-            return
-
+        if not message.author or message.author.bot or not message.content.startswith("!"): return
+        
         parts = message.content.split(" ")
         cmd = parts[0].lower()
         args = parts[1:]
 
-        # --- MENU D'AIDE ---
         if cmd == "!help":
-            help_msg = (
-                "### 🦦 **Stoat Bot - Menu d'aide**\n"
-                "--- \n"
-                "🎮 **Divertissement**\n"
-                "> `!8ball <question>` : Pose une question à l'hermine.\n"
-                "> `!roll <nb>` : Lance un dé (par défaut 6).\n"
-                "> `!gif <texte>` : Cherche un GIF sur Tenor.\n\n"
-                "🛠️ **Utilitaires**\n"
-                "> `!ping` : Latence du bot.\n"
-                "> `!uptime` : Temps de fonctionnement.\n"
-                "> `!avatar <@user>` : Affiche l'avatar d'un membre.\n"
-                "> `!serverinfo` : Détails sur le serveur.\n\n"
-                "🛡️ **Modération**\n"
-                "> `!clear <nb>` : Supprime X messages (max 100).\n"
-                "> `!setstatus <texte>` : Modifie le statut du bot.\n"
-                "--- \n"
-                "*Développé par Galaxie_s9*"
+            await message.reply(
+                "### 🦦 **Stoat Bot Help**\n---\n"
+                "> `!ping`, `!uptime`, `!avatar`, `!serverinfo`\n"
+                "> `!8ball`, `!roll`, `!gif`\n"
+                "> `!clear`, `!setstatus` (Staff)\n---\n"
+                "*Fait par Galaxie_s9*"
             )
-            await message.reply(help_msg)
 
-        # --- COMMANDES FUN ---
-        elif cmd == "!8ball":
-            if not args: return await message.reply("🔮 Pose-moi une question !")
-            reponses = ["C'est certain 🦦", "Sans aucun doute", "Demande plus tard", "Ma réponse est non", "Très probable", "Je n'en suis pas sûr..."]
-            await message.reply(f"🎱 **{message.author.name}**, ma réponse est : **{random.choice(reponses)}**")
-
-        elif cmd == "!roll":
-            try:
-                max_v = int(args[0]) if args else 6
-                if max_v < 1: throw_err
-                await message.reply(f"🎲 **Dé :** Tu as obtenu un `{random.randint(1, max_v)}` sur {max_v} !")
-            except: await message.reply("❌ Précise un nombre entier positif (ex: !roll 20).")
-
-        elif cmd == "!gif":
-            search = "+".join(args) if args else "otter"
-            await message.reply(f"🎬 **GIF pour '{' '.join(args) if args else 'loutre'}'** :\nhttps://tenor.com/search/{search}-gifs")
-
-        # --- COMMANDES TOOLS ---
         elif cmd == "!ping":
-            start = time.time()
-            m = await message.reply("🏓 Calcul...")
-            end = time.time()
-            await m.edit(content=f"🏓 **Pong !** Latence : `{round((end - start) * 1000)}ms`")
+            s = time.time()
+            m = await message.reply("🏓...")
+            await m.edit(content=f"🏓 Pong ! `{round((time.time()-s)*1000)}ms`")
 
         elif cmd == "!uptime":
             upt = int(time.time() - self.start_timestamp)
-            jours = upt // 86400
-            heures = (upt % 86400) // 3600
-            minutes = (upt % 3600) // 60
-            await message.reply(f"🕒 Je suis en ligne depuis : **{jours}j {heures}h {minutes}m**.")
+            await message.reply(f"🕒 En ligne depuis : **{upt//3600}h {(upt%3600)//60}m**.")
 
         elif cmd == "!avatar":
             u = message.mentions[0] if message.mentions else message.author
-            await message.reply(f"📷 **Avatar de {u.name}** :\n{u.avatar_url}")
+            await message.reply(f"📷 **{u.name}**\n{u.avatar_url}")
 
         elif cmd == "!serverinfo":
             s = message.server
-            creation_date = datetime.fromtimestamp(s.id.timestamp / 1000).strftime("%d/%m/%Y")
-            info = (
-                f"🏘️ **Nom du Serveur :** {s.name}\n"
-                f"👑 **Propriétaire :** <@{s.owner_id}>\n"
-                f"👥 **Membres :** `{len(s.members)}` membres\n"
-                f"📅 **Créé le :** {creation_date}"
-            )
-            await message.reply(info)
+            await message.reply(f"🏘️ **{s.name}**\n👥 Membres : `{len(s.members)}`")
 
-        # --- COMMANDES MODO/ADMIN ---
+        elif cmd == "!8ball":
+            rep = ["Oui", "Non", "Peut-être", "Certainement", "Même pas en rêve"]
+            await message.reply(f"🎱 | {random.choice(rep)}")
+
+        elif cmd == "!roll":
+            v = int(args[0]) if args and args[0].isdigit() else 6
+            await message.reply(f"🎲 | `{random.randint(1, v)}`")
+
+        elif cmd == "!gif":
+            q = "+".join(args) if args else "otter"
+            await message.reply(f"🎬 https://tenor.com/search/{q}-gifs")
+
         elif cmd == "!clear":
-            if not message.author.get_permissions().manage_messages:
-                return await message.reply("❌ Permission 'Gérer les messages' manquante.")
+            if not message.author.get_permissions().manage_messages: return
             try:
-                amt = int(args[0]) if args else 10
-                if amt > 100: amt = 100  # Limite de sécurité
-                await message.channel.clear(amt)
-                m = await message.channel.send(f"🧹 **{amt}** messages ont été balayés !")
-                await asyncio.sleep(3)
-                await m.delete()
-                await self.send_log(f"🧹 **Nettoyage** : {amt} messages supprimés par {message.author.name} dans {message.channel.mention}")
+                amt = int(args[0]) if args and args[0].isdigit() else 10
+                await message.channel.clear(min(amt, 100))
             except: pass
 
         elif cmd == "!setstatus":
-            if not message.author.get_permissions().manage_server:
-                return await message.reply("❌ Permission 'Gérer le serveur' manquante.")
-            new_status = " ".join(args) if args else f"{self.last_date} | !help"
-            self.custom_status = new_status
-            try:
-                await self.edit_status(text=new_status, presence=revolt.PresenceType.online)
-                await message.reply(f"✅ Statut mis à jour : `{new_status}`")
-            except: 
-                await message.reply("❌ Erreur lors du changement de statut.")
+            if not message.author.get_permissions().manage_server: return
+            self.custom_status = " ".join(args) if args else f"{self.last_date} | !help"
+            await self.edit_status(text=self.custom_status, presence=revolt.PresenceType.online)
+            await message.reply("✅")
 
-# --- LANCEMENT ---
+# --- LANCEMENT AVEC RECONNEXION ---
 async def start_bot():
     token = os.environ.get("REVOLT_TOKEN")
-    if not token:
-        print("❌ ERREUR : Le token est introuvable dans les variables d'environnement.")
-        return
-        
-    async with revolt.utils.client_session() as session:
-        client = StoatBot(session, token, api_url="https://api.stoat.chat")
-        await client.start()
+    while True:
+        try:
+            async with revolt.utils.client_session() as session:
+                client = StoatBot(session, token, api_url="https://api.stoat.chat")
+                await client.start()
+        except Exception as e:
+            print(f"⚠️ Connexion perdue, tentative de reconnexion dans 5s... ({e})")
+            await asyncio.sleep(5)
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
-    try:
-        asyncio.run(start_bot())
-    except KeyboardInterrupt:
-        print("👋 Bot arrêté manuellement.")
+    asyncio.run(start_bot())
