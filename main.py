@@ -3,10 +3,11 @@ from flask import Flask
 import revolt
 import config
 
-# --- PARTIE WEB ---
+# --- PARTIE WEB (Render & UptimeRobot) ---
 app = Flask(__name__)
 @app.route('/')
-def home(): return "🦦 Stoat Bot : Connecté et Opérationnel."
+def home(): 
+    return "<body style='background:#121212;color:#00d1b2;text-align:center;padding:50px;font-family:sans-serif;'><h1>🦦 Stoat Bot : Actif</h1><p>Surveillance et Logs en cours...</p></body>"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -19,31 +20,62 @@ class StoatBot(revolt.Client):
         self.start_timestamp = time.time()
         self.starboard_cache = set()
 
+    # --- INITIALISATION ---
     async def on_ready(self):
-        print(f"✅ Connecté : {self.user.name}")
-        await self.send_log(f"🚀 **Bot Redémarré**\nPrêt à gérer le serveur.")
+        print(f"✅ Connecté en tant que : {self.user.name}")
+        await self.send_log(f"🚀 **Le bot a démarré !**\nPrêt à surveiller le serveur.")
 
+    # --- FONCTION LOGS ---
     async def send_log(self, text):
         channel = self.get_channel(config.LOGS_CHANNEL_ID)
         if channel:
+            # Formatage : Heure | Message
             await channel.send(f"🕒 `{time.strftime('%H:%M:%S')}` | {text}")
 
-    # --- ÉVÉNEMENTS ---
+    # --- LOGS DE MESSAGES (SUPPRESSION & MODIFICATION) ---
+    async def on_message_delete(self, message: revolt.Message):
+        # On ignore les messages des bots pour ne pas polluer les logs
+        if message.author.bot: return
+        
+        auteur = message.author.name if message.author else "Inconnu"
+        contenu = message.content if message.content else "*Contenu introuvable (ancien message)*"
+        
+        log_txt = (
+            f"🗑️ **Message Supprimé**\n"
+            f"**Auteur :** {auteur}\n"
+            f"**Salon :** {message.channel.mention}\n"
+            f"**Contenu :** {contenu}"
+        )
+        await self.send_log(log_txt)
+
+    async def on_message_update(self, before: revolt.Message, after: revolt.Message):
+        if after.author.bot: return
+        if before.content == after.content: return # Pas de log si c'est juste un embed
+
+        log_txt = (
+            f"📝 **Message Modifié**\n"
+            f"**Auteur :** {after.author.name}\n"
+            f"**Salon :** {after.channel.mention}\n"
+            f"**Ancien :** {before.content}\n"
+            f"**Nouveau :** {after.content}"
+        )
+        await self.send_log(log_txt)
+
+    # --- LOGS MEMBRES ---
     async def on_member_join(self, member: revolt.Member):
         await self.send_log(f"📥 **Arrivée** : {member.mention} (`{member.id}`)")
+        # Accueil
         channel = self.get_channel(config.WELCOME_CHANNEL_ID)
         if channel:
             count = len(member.server.members)
             await channel.send(config.WELCOME_MESSAGE.format(user=member.mention, count=count))
+        # Auto-role
         for r_id in config.AUTO_ROLES:
             try: await member.add_role(r_id)
             except: pass
 
     async def on_member_leave(self, server: revolt.Server, user: revolt.User):
         await self.send_log(f"📤 **Départ** : {user.name} (`{user.id}`)")
-
-    async def on_message_delete(self, channel: revolt.Channel, message_id: str):
-        await self.send_log(f"🗑️ **Message Supprimé** dans {channel.mention} (ID: `{message_id}`)")
 
     # --- STARBOARD ---
     async def on_reaction_add(self, message: revolt.Message, user: revolt.User, emoji_id: str):
@@ -65,37 +97,34 @@ class StoatBot(revolt.Client):
         cmd = parts[0].lower()
         args = parts[1:]
 
-        # --- FUN ---
+        # Log de l'utilisation d'une commande
+        await self.send_log(f"⚙️ **Commande** : `{cmd}` par {message.author.name}")
+
         if cmd == "!ping":
             st = time.time()
-            m = await message.reply("Calcul du ping... 🦦")
+            m = await message.reply("Calcul...")
             lt = round((time.time() - st) * 1000)
             await m.edit(content=f"Pong ! 🏓 Latence : **{lt}ms**")
 
         elif cmd == "!8ball":
-            reponses = ["C'est certain 🦦", "Sans aucun doute", "Demande plus tard", "Ma réponse est non", "Très probable", "Peu probable"]
             if not args: return await message.reply("Pose-moi une question !")
-            await message.reply(f"🔮 **Question :** {' '.join(args)}\n🎱 **Réponse :** {random.choice(reponses)}")
+            reponses = ["C'est certain 🦦", "Sans aucun doute", "Demande plus tard", "Ma réponse est non", "Très probable", "Peu probable"]
+            await message.reply(f"🎱 **Réponse :** {random.choice(reponses)}")
 
         elif cmd == "!roll":
             try:
-                max_val = int(args[0]) if args else 6
-                res = random.randint(1, max_val)
-                await message.reply(f"🎲 Le dé tombe sur : **{res}** (1-{max_val})")
-            except: await message.reply("Utilise un nombre valide ! `!roll 20`")
+                max_v = int(args[0]) if args else 6
+                await message.reply(f"🎲 Le dé tombe sur : **{random.randint(1, max_v)}**")
+            except: await message.reply("Nombre invalide !")
 
         elif cmd == "!gif":
             search = "+".join(args) if args else "otter"
-            await message.reply(f"🎬 Voici un GIF pour **{search.replace('+', ' ')}** :\nhttps://tenor.com/search/{search}-gifs")
+            await message.reply(f"🎬 GIF : https://tenor.com/search/{search}-gifs")
 
-        elif cmd == "!coinflip":
-            await message.reply(f"🪙 C'est tombé sur : **{random.choice(['Pile', 'Face'])}**")
-
-        # --- UTILS & MOD ---
         elif cmd == "!uptime":
             upt = int(time.time() - self.start_timestamp)
             h, m = upt // 3600, (upt % 3600) // 60
-            await message.reply(f"🕒 Réveillé depuis **{h}h {m}m**.\n[UptimeRobot](https://stats.uptimerobot.com/gZPMLgzGuw)")
+            await message.reply(f"🕒 En ligne depuis **{h}h {m}m**.\n[UptimeRobot](https://stats.uptimerobot.com/gZPMLgzGuw)")
 
         elif cmd == "!avatar":
             u = message.mentions[0] if message.mentions else message.author
@@ -107,25 +136,10 @@ class StoatBot(revolt.Client):
             try:
                 amt = int(args[0]) if args else 10
                 await message.channel.clear(amt)
-                await self.send_log(f"🧹 **Clear** : {amt} messages par {message.author.name}")
             except: pass
 
         elif cmd == "!help":
-            help_msg = (
-                "**🦦 Commandes de Stoat Bot :**\n\n"
-                "🎮 **Fun :**\n"
-                "`!8ball [question]` - Pose une question au destin\n"
-                "`!roll [nb]` - Lance un dé (par défaut 6)\n"
-                "`!gif [recherche]` - Trouve un GIF\n"
-                "`!coinflip` - Pile ou Face\n\n"
-                "🛠️ **Utilitaires :**\n"
-                "`!ping` - Latence du bot\n"
-                "`!uptime` - Temps depuis le dernier reboot\n"
-                "`!avatar [@user]` - Affiche l'avatar\n\n"
-                "🛡️ **Modération :**\n"
-                "`!clear [nb]` - Supprime les messages"
-            )
-            await message.reply(help_msg)
+            await message.reply("**Commandes :**\n`!ping`, `!uptime`, `!8ball`, `!roll`, `!gif`, `!avatar`, `!clear`")
 
 # --- LANCEMENT ---
 async def start_bot():
