@@ -1,3 +1,2 @@
 revolt.py
 flask
-gunicorn
