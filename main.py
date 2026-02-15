@@ -5,6 +5,14 @@ from flask import Flask
 import revolt
 import config
 
+# --- VARIABLES D'ÉTAT POUR LE SITE ---
+bot_stats = {
+    "online": False,
+    "connected_to_stoat": False,
+    "last_command": "Aucune",
+    "latency": "N/A"
+}
+
 # Configuration du fuseau horaire français
 FRANCE_TZ = pytz.timezone('Europe/Paris')
 
@@ -17,9 +25,25 @@ def get_fr_time_info():
 
 # --- PARTIE WEB (FLASK) ---
 app = Flask(__name__)
+
 @app.route('/')
 def home(): 
-    return "Stoat Bot is running"
+    status_stoat = "✅ Connecté" if bot_stats["connected_to_stoat"] else "❌ Déconnecté"
+    return f"""
+    <html>
+        <head><title>Stoat Bot Status</title></head>
+        <body style="font-family: sans-serif; background: #1e1e1e; color: white; padding: 20px;">
+            <h2>🦦 Stoat Bot Status</h2>
+            <hr>
+            <p>🌐 <b>Bot en ligne :</b> ✅ Oui</p>
+            <p>📡 <b>Connexion Stoat :</b> {status_stoat}</p>
+            <p>⚡ <b>Dernière commande :</b> <code>{bot_stats['last_command']}</code></p>
+            <p>🏓 <b>Ping :</b> {bot_stats['latency']}</p>
+            <br>
+            <small><i>Actualisé au chargement de la page.</i></small>
+        </body>
+    </html>
+    """
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -34,6 +58,7 @@ class StoatBot(revolt.Client):
         self.last_date = now.strftime("%d/%m/%Y")
 
     async def on_ready(self):
+        bot_stats["connected_to_stoat"] = True
         print(f"✅ Bot connecté sur Stoat.chat : {self.user.name}")
         now, utc_offset = get_fr_time_info()
         time_str = now.strftime('%H:%M:%S')
@@ -78,6 +103,9 @@ class StoatBot(revolt.Client):
         cmd = parts[0].lower()
         args = parts[1:]
 
+        # Mise à jour de la dernière commande pour le site
+        bot_stats["last_command"] = cmd
+
         if cmd == "!help":
             help_text = (
                 "### 🦦 **Menu d'Aide - Stoat Bot**\n"
@@ -101,6 +129,7 @@ class StoatBot(revolt.Client):
             s = time.time()
             m = await message.reply("🏓...")
             latency = round((time.time() - s) * 1000)
+            bot_stats["latency"] = f"{latency}ms" # Mise à jour du ping pour le site
             await m.edit(content=f"🏓 Pong ! `{latency}ms`")
 
         elif cmd == "!uptime":
@@ -138,22 +167,20 @@ async def start_bot():
         return
 
     while True:
+        bot_stats["connected_to_stoat"] = False
         try:
             async with revolt.utils.client_session() as session:
                 client = StoatBot(session, token, api_url="https://api.stoat.chat")
                 print("📡 Tentative de connexion à Stoat.chat...")
                 await client.start()
         except Exception as e:
-            # Cette partie capture les erreurs 502 ou les déco en plein milieu
             print(f"💥 Erreur de connexion : {e}")
             print("⏳ Nouvelle tentative de reconnexion dans 20 secondes...")
             await asyncio.sleep(20)
 
 if __name__ == "__main__":
-    # Flask tourne dans un thread séparé
     threading.Thread(target=run_flask, daemon=True).start()
     
-    # Boucle principale asyncio
     try:
         asyncio.run(start_bot())
     except KeyboardInterrupt:
