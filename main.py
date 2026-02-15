@@ -119,6 +119,16 @@ class StoatBot(revolt.Client):
             rep = ["Oui", "Non", "Peut-être", "C'est probable", "Absolument pas"]
             await message.reply(f"🎱 | {random.choice(rep)}")
 
+        elif cmd == "!roll":
+            try:
+                # Si un argument est donné et est un chiffre, on l'utilise, sinon 6 par défaut
+                faces = int(args[0]) if args and args[0].isdigit() else 6
+                if faces < 1: faces = 6
+                resultat = random.randint(1, faces)
+                await message.reply(f"🎲 | Tu as lancé un dé à {faces} faces et obtenu : **{resultat}**")
+            except:
+                await message.reply("🎲 | Erreur lors du lancer de dé.")
+
         elif cmd == "!clear":
             if not message.author.get_permissions().manage_messages: return
             try:
