@@ -77,11 +77,11 @@ class StoatBot(revolt.Client):
         except: pass
         
         asyncio.create_task(self.date_checker())
-        asyncio.create_task(self.auto_reconnect_task()) # Lancement de la tâche horaire
+        asyncio.create_task(self.auto_reconnect_task())
 
     async def auto_reconnect_task(self):
         """Force une déconnexion toutes les 1h pour rafraîchir la session"""
-        await asyncio.sleep(3600) # 1 heure
+        await asyncio.sleep(3600)
         print("🔄 Reconnexion programmée (1h écoulée)...")
         await self.stop()
 
@@ -134,6 +134,7 @@ class StoatBot(revolt.Client):
                 "🛡️ **Modération**\n"
                 "> `!clear [nb]` : Supprime un nombre de messages.\n"
                 "---\n"
+                "🌐 **Status Web** : https://stoat.onrender.com/\n"
                 "*Besoin d'aide supplémentaire ? Contactez un administrateur.*"
             )
             await message.reply(help_text)
