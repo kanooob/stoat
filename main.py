@@ -77,6 +77,13 @@ class StoatBot(revolt.Client):
         except: pass
         
         asyncio.create_task(self.date_checker())
+        asyncio.create_task(self.auto_reconnect_task()) # Lancement de la tâche horaire
+
+    async def auto_reconnect_task(self):
+        """Force une déconnexion toutes les 1h pour rafraîchir la session"""
+        await asyncio.sleep(3600) # 1 heure
+        print("🔄 Reconnexion programmée (1h écoulée)...")
+        await self.stop()
 
     async def date_checker(self):
         while True:
@@ -110,11 +117,25 @@ class StoatBot(revolt.Client):
         cmd = parts[0].lower()
         args = parts[1:]
 
-        # Enregistre la commande utilisée
         bot_stats["last_command"] = cmd
 
         if cmd == "!help":
-            help_text = "### 🦦 **Menu d'Aide**\n`!ping`, `!uptime`, `!8ball`, `!roll`, `!clear`"
+            help_text = (
+                "### 🦦 **Menu d'Aide - Stoat Bot**\n"
+                "---\n"
+                "🎮 **Divertissement**\n"
+                "> `!8ball [question]` : Pose une question à la boule magique.\n"
+                "> `!roll [nombre]` : Lance un dé (6 faces par défaut).\n"
+                "\n"
+                "🛠️ **Utilitaires**\n"
+                "> `!ping` : Vérifie la latence du bot.\n"
+                "> `!uptime` : Affiche le temps depuis l'allumage.\n"
+                "\n"
+                "🛡️ **Modération**\n"
+                "> `!clear [nb]` : Supprime un nombre de messages.\n"
+                "---\n"
+                "*Besoin d'aide supplémentaire ? Contactez un administrateur.*"
+            )
             await message.reply(help_text)
 
         elif cmd == "!ping":
@@ -165,8 +186,8 @@ async def start_bot():
                 print("📡 Tentative de connexion à Stoat.chat...")
                 await client.start()
         except Exception as e:
-            print(f"💥 Erreur de connexion : {e}")
-            print("⏳ Nouvelle tentative de reconnexion dans 20 secondes...")
+            print(f"💥 Erreur détectée : {e}")
+            print("⏳ Nouvelle tentative dans 20 secondes...")
             await asyncio.sleep(20)
 
 if __name__ == "__main__":
