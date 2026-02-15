@@ -22,32 +22,39 @@ class StoatBot(revolt.Client):
         self.starboard_cache = set()
         self.last_date = datetime.now().strftime("%d/%m/%Y")
         self.custom_status = f"{self.last_date} | !help"
+        self.loop_started = False
 
     async def on_ready(self):
         print(f"✅ Connecté : {self.user.name}")
         await self.edit_status(text=self.custom_status, presence=revolt.PresenceType.online)
         await self.send_log(f"🚀 **Bot Démarré**\nStatut : `{self.custom_status}`")
         
-        # Lancer la boucle de mise à jour de la date
-        self.dispatch("update_date_loop")
+        # On lance la boucle de date une seule fois au démarrage
+        if not self.loop_started:
+            self.loop_started = True
+            asyncio.create_task(self.update_date_loop())
 
-    # --- BOUCLE AUTOMATIQUE (DATE) ---
-    @revolt.Client.event
-    async def on_update_date_loop(self):
+    # --- BOUCLE DE MISE À JOUR DE LA DATE ---
+    async def update_date_loop(self):
         while not self.is_closed():
             current_date = datetime.now().strftime("%d/%m/%Y")
             if current_date != self.last_date:
                 self.last_date = current_date
                 self.custom_status = f"{current_date} | !help"
-                await self.edit_status(text=self.custom_status, presence=revolt.PresenceType.online)
-                await self.send_log(f"📅 **Mise à jour auto** : La date est maintenant `{current_date}`")
+                try:
+                    await self.edit_status(text=self.custom_status, presence=revolt.PresenceType.online)
+                    await self.send_log(f"📅 **Mise à jour auto** : La date est maintenant `{current_date}`")
+                except Exception as e:
+                    print(f"Erreur mise à jour statut : {e}")
             
+            # On attend 60 secondes avant la prochaine vérification
             await asyncio.sleep(60)
 
     async def send_log(self, text):
         channel = self.get_channel(config.LOGS_CHANNEL_ID)
         if channel:
-            await channel.send(f"🕒 `{time.strftime('%H:%M:%S')}` | {text}")
+            try: await channel.send(f"🕒 `{time.strftime('%H:%M:%S')}` | {text}")
+            except: pass
 
     # --- ÉVÉNEMENTS ---
     async def on_message_delete(self, message: revolt.Message):
@@ -110,7 +117,6 @@ class StoatBot(revolt.Client):
 
         elif cmd == "!8ball":
             if not args: return await message.reply("Pose-moi une question !")
-            # On définit la liste ici pour éviter le bug du backslash
             reponses = ["C'est certain 🦦", "Sans aucun doute", "Demande plus tard", "Ma réponse est non", "Très probable"]
             await message.reply(f"🎱 **Réponse :** {random.choice(reponses)}")
 
