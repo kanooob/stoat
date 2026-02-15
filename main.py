@@ -11,15 +11,16 @@ FRANCE_TZ = pytz.timezone('Europe/Paris')
 def get_fr_time():
     return datetime.now(FRANCE_TZ)
 
-# --- PARTIE WEB ---
+# --- PARTIE WEB (FLASK) ---
 app = Flask(__name__)
 @app.route('/')
 def home(): 
-    return "Stoat Bot Online"
+    return "Stoat Bot is running"
 
 def run_flask():
+    # Render a besoin que ce port soit ouvert
     port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    app.run(host='0.0.0.0', port=port)
 
 # --- LE BOT STOAT ---
 class StoatBot(revolt.Client):
@@ -27,27 +28,32 @@ class StoatBot(revolt.Client):
         super().__init__(*args, **kwargs)
         self.start_timestamp = time.time()
         self.last_date = get_fr_time().strftime("%d/%m/%Y")
-        self.custom_status = f"{self.last_date} | !help"
 
     async def on_ready(self):
-        print(f"✅ Connecté : {self.user.name}")
+        print(f"✅ Bot connecté sur Stoat.chat en tant que : {self.user.name}")
+        
+        # Log de démarrage dans le salon de logs
         await self.send_log(f"🚀 **Bot Stoat en ligne !**\nHeure FR : `{get_fr_time().strftime('%H:%M:%S')}`")
+        
+        # Mise à jour du statut initial
         try:
-            await self.edit_status(text=self.custom_status, presence=revolt.PresenceType.online)
+            await self.edit_status(text=f"{self.last_date} | !help", presence=revolt.PresenceType.online)
         except: pass
-        # Lancement de la boucle de date proprement
-        asyncio.create_task(self.update_date_loop())
+        
+        # Lancement de la boucle de changement de date
+        asyncio.create_task(self.date_checker())
 
-    async def update_date_loop(self):
-        while not self.is_closed():
-            try:
-                current_date = get_fr_time().strftime("%d/%m/%Y")
-                if current_date != self.last_date:
-                    self.last_date = current_date
-                    self.custom_status = f"{current_date} | !help"
-                    await self.edit_status(text=self.custom_status, presence=revolt.PresenceType.online)
-            except: pass
+    async def date_checker(self):
+        """Boucle qui vérifie le changement de jour chaque minute."""
+        while True:
             await asyncio.sleep(60)
+            now_date = get_fr_time().strftime("%d/%m/%Y")
+            if now_date != self.last_date:
+                self.last_date = now_date
+                try:
+                    await self.edit_status(text=f"{now_date} | !help", presence=revolt.PresenceType.online)
+                    await self.send_log(f"📅 Nouvelle journée : `{now_date}`")
+                except: pass
 
     async def send_log(self, text):
         channel = self.get_channel(config.LOGS_CHANNEL_ID)
@@ -58,55 +64,73 @@ class StoatBot(revolt.Client):
             except: pass
 
     async def on_message(self, message: revolt.Message):
-        if not message.author or message.author.bot or not message.content: return
-        if not message.content.startswith("!"): return
+        # Ignore les bots et les messages vides
+        if not message.author or message.author.bot or not message.content:
+            return
+
+        # Très important pour débugger : on affiche tout dans la console Render
+        print(f"📩 [{message.author.name}] : {message.content}")
+
+        if not message.content.startswith("!"):
+            return
         
         parts = message.content.split(" ")
         cmd = parts[0].lower()
         args = parts[1:]
 
+        # --- COMMANDES ---
         if cmd == "!help":
-            await message.reply("### 🦦 **Stoat Bot Help**\n---\n🎮 **Fun** : `!8ball`, `!roll`, `!gif`\n🛠️ **Outils** : `!ping`, `!uptime`, `!avatar`, `!serverinfo`\n🛡️ **Staff** : `!clear`, `!setstatus`")
+            await message.reply("### 🦦 **Stoat Bot Help**\n---\n`!ping`, `!avatar`, `!uptime`, `!8ball`, `!roll`, `!clear`")
 
         elif cmd == "!ping":
             s = time.time()
             m = await message.reply("🏓...")
-            await m.edit(content=f"🏓 Pong ! `{round((time.time()-s)*1000)}ms`")
+            latency = round((time.time() - s) * 1000)
+            await m.edit(content=f"🏓 Pong ! `{latency}ms`")
 
         elif cmd == "!avatar":
             u = message.mentions[0] if message.mentions else message.author
-            url = u.avatar.url if u.avatar else "Pas d'avatar."
-            await message.reply(f"📷 **{u.name}**\n{url}")
+            asset = u.avatar
+            url = asset.url if asset else "Cet utilisateur n'a pas d'avatar."
+            await message.reply(f"📷 **Avatar de {u.name}** :\n{url}")
+
+        elif cmd == "!uptime":
+            upt = int(time.time() - self.start_timestamp)
+            h, m = upt // 3600, (upt % 3600) // 60
+            await message.reply(f"🕒 En ligne depuis : **{h}h {m}m**.")
 
         elif cmd == "!8ball":
+            if not args: return await message.reply("🔮 Pose une question !")
             rep = ["Oui", "Non", "Peut-être", "C'est probable", "Absolument pas"]
             await message.reply(f"🎱 | {random.choice(rep)}")
 
         elif cmd == "!clear":
             if not message.author.get_permissions().manage_messages: return
-            amt = int(args[0]) if args and args[0].isdigit() else 10
-            await message.channel.clear(min(amt, 100))
+            try:
+                amt = int(args[0]) if args and args[0].isdigit() else 10
+                await message.channel.clear(min(amt, 100))
+            except Exception as e:
+                print(f"Erreur clear: {e}")
 
 # --- LANCEMENT ---
-async def start_client():
+async def main():
     token = os.environ.get("REVOLT_TOKEN")
     if not token:
-        print("❌ ERREUR : REVOLT_TOKEN manquant dans les variables Render !")
+        print("❌ ERREUR : Le token REVOLT_TOKEN est introuvable !")
         return
 
     async with revolt.utils.client_session() as session:
         client = StoatBot(session, token, api_url="https://api.stoat.chat")
-        print("📡 Tentative de connexion à Stoat.chat...")
+        print("📡 Lancement de la connexion...")
         await client.start()
 
 if __name__ == "__main__":
-    # On lance Flask dans un thread séparé
-    threading.Thread(target=run_flask, daemon=True).start()
+    # 1. On lance le serveur Web en arrière-plan
+    t = threading.Thread(target=run_flask, daemon=True)
+    t.start()
     
-    # On lance le bot
+    # 2. On lance le bot
     try:
-        asyncio.run(start_client())
-    except KeyboardInterrupt:
-        pass
+        asyncio.run(main())
     except Exception as e:
-        print(f"💥 Erreur Critique : {e}")
+        print(f"💥 Erreur lors de l'exécution : {e}")
