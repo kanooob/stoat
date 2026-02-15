@@ -85,7 +85,24 @@ class StoatBot(revolt.Client):
         args = parts[1:]
 
         if cmd == "!help":
-            await message.reply("### 🦦 **Stoat Bot Help**\n---\n`!ping`, `!avatar`, `!uptime`, `!8ball`, `!roll`, `!clear`")
+            help_text = (
+                "### 🦦 **Menu d'Aide - Stoat Bot**\n"
+                "---\n"
+                "🎮 **Divertissement**\n"
+                "> `!8ball [question]` : Pose une question à la boule magique.\n"
+                "> `!roll [nombre]` : Lance un dé (6 faces par défaut).\n"
+                "\n"
+                "🛠️ **Utilitaires**\n"
+                "> `!ping` : Vérifie la latence du bot.\n"
+                "> `!avatar [@user]` : Affiche l'avatar d'un membre.\n"
+                "> `!uptime` : Affiche le temps depuis l'allumage.\n"
+                "\n"
+                "🛡️ **Modération**\n"
+                "> `!clear [nb]` : Supprime un nombre de messages.\n"
+                "---\n"
+                "*Besoin d'aide supplémentaire ? Contactez un administrateur.*"
+            )
+            await message.reply(help_text)
 
         elif cmd == "!ping":
             s = time.time()
