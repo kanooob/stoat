@@ -19,63 +19,48 @@ class StoatBot(revolt.Client):
         super().__init__(*args, **kwargs)
         self.start_timestamp = time.time()
         self.starboard_cache = set()
+        # Statut par défaut au démarrage
+        self.custom_status = "15/02/2026 | !help"
 
     # --- INITIALISATION ---
     async def on_ready(self):
         print(f"✅ Connecté en tant que : {self.user.name}")
-        await self.send_log(f"🚀 **Le bot a démarré !**\nPrêt à surveiller le serveur.")
+        # Mise à jour du statut sur Revolt/Stoat
+        await self.edit_status(text=self.custom_status, presence=revolt.PresenceType.online)
+        await self.send_log(f"🚀 **Le bot a démarré !**\nStatut actuel : `{self.custom_status}`")
 
     # --- FONCTION LOGS ---
     async def send_log(self, text):
         channel = self.get_channel(config.LOGS_CHANNEL_ID)
         if channel:
-            # Formatage : Heure | Message
             await channel.send(f"🕒 `{time.strftime('%H:%M:%S')}` | {text}")
 
-    # --- LOGS DE MESSAGES (SUPPRESSION & MODIFICATION) ---
+    # --- LOGS DE MESSAGES ---
     async def on_message_delete(self, message: revolt.Message):
-        # On ignore les messages des bots pour ne pas polluer les logs
         if message.author.bot: return
-        
         auteur = message.author.name if message.author else "Inconnu"
         contenu = message.content if message.content else "*Contenu introuvable (ancien message)*"
-        
-        log_txt = (
-            f"🗑️ **Message Supprimé**\n"
-            f"**Auteur :** {auteur}\n"
-            f"**Salon :** {message.channel.mention}\n"
-            f"**Contenu :** {contenu}"
-        )
+        log_txt = f"🗑️ **Message Supprimé**\n**Auteur :** {auteur}\n**Salon :** {message.channel.mention}\n**Contenu :** {contenu}"
         await self.send_log(log_txt)
 
     async def on_message_update(self, before: revolt.Message, after: revolt.Message):
-        if after.author.bot: return
-        if before.content == after.content: return # Pas de log si c'est juste un embed
-
-        log_txt = (
-            f"📝 **Message Modifié**\n"
-            f"**Auteur :** {after.author.name}\n"
-            f"**Salon :** {after.channel.mention}\n"
-            f"**Ancien :** {before.content}\n"
-            f"**Nouveau :** {after.content}"
-        )
+        if after.author.bot or before.content == after.content: return
+        log_txt = f"📝 **Message Modifié**\n**Auteur :** {after.author.name}\n**Ancien :** {before.content}\n**Nouveau :** {after.content}"
         await self.send_log(log_txt)
 
-    # --- LOGS MEMBRES ---
+    # --- LOGS MEMBRES & ACCUEIL ---
     async def on_member_join(self, member: revolt.Member):
-        await self.send_log(f"📥 **Arrivée** : {member.mention} (`{member.id}`)")
-        # Accueil
+        await self.send_log(f"📥 **Arrivée** : {member.mention}")
         channel = self.get_channel(config.WELCOME_CHANNEL_ID)
         if channel:
             count = len(member.server.members)
             await channel.send(config.WELCOME_MESSAGE.format(user=member.mention, count=count))
-        # Auto-role
         for r_id in config.AUTO_ROLES:
             try: await member.add_role(r_id)
             except: pass
 
     async def on_member_leave(self, server: revolt.Server, user: revolt.User):
-        await self.send_log(f"📤 **Départ** : {user.name} (`{user.id}`)")
+        await self.send_log(f"📤 **Départ** : {user.name}")
 
     # --- STARBOARD ---
     async def on_reaction_add(self, message: revolt.Message, user: revolt.User, emoji_id: str):
@@ -86,7 +71,7 @@ class StoatBot(revolt.Client):
                 star_channel = self.get_channel(config.STARBOARD_CHANNEL_ID)
                 if star_channel:
                     self.starboard_cache.add(msg.id)
-                    await star_channel.send(f"🌟 **Nouveau message star !** de {msg.author.mention} dans {msg.channel.mention}\n> {msg.content}")
+                    await star_channel.send(f"🌟 **Nouveau message star !** de {msg.author.mention}\n> {msg.content}")
 
     # --- COMMANDES ---
     async def on_message(self, message: revolt.Message):
@@ -97,10 +82,23 @@ class StoatBot(revolt.Client):
         cmd = parts[0].lower()
         args = parts[1:]
 
-        # Log de l'utilisation d'une commande
         await self.send_log(f"⚙️ **Commande** : `{cmd}` par {message.author.name}")
 
-        if cmd == "!ping":
+        # --- NOUVELLE COMMANDE : CHANGEMENT DE STATUT ---
+        if cmd == "!setstatus":
+            if not message.author.get_permissions().manage_server:
+                return await message.reply("❌ Tu n'as pas la permission 'Gérer le serveur'.")
+            
+            if not args:
+                return await message.reply("Utilise : `!setstatus [ton message]`")
+            
+            new_status = " ".join(args)
+            self.custom_status = new_status
+            await self.edit_status(text=new_status, presence=revolt.PresenceType.online)
+            await message.reply(f"✅ Statut mis à jour : `{new_status}`")
+            await self.send_log(f"🎭 **Statut changé** par {message.author.name} : `{new_status}`")
+
+        elif cmd == "!ping":
             st = time.time()
             m = await message.reply("Calcul...")
             lt = round((time.time() - st) * 1000)
@@ -139,7 +137,13 @@ class StoatBot(revolt.Client):
             except: pass
 
         elif cmd == "!help":
-            await message.reply("**Commandes :**\n`!ping`, `!uptime`, `!8ball`, `!roll`, `!gif`, `!avatar`, `!clear`")
+            help_msg = (
+                "**🦦 Commandes de Stoat Bot :**\n"
+                "🔹 `!ping`, `!uptime`, `!avatar`, `!clear`\n"
+                "🔹 `!8ball`, `!roll`, `!gif` (recherche GIF)\n"
+                "🔹 `!setstatus [texte]` (Modos uniquement)"
+            )
+            await message.reply(help_msg)
 
 # --- LANCEMENT ---
 async def start_bot():
