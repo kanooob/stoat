@@ -7,10 +7,10 @@ import config
 
 # --- VARIABLES D'ÉTAT POUR LE SITE ---
 bot_stats = {
-    "online": False,
+    "online": True,
     "connected_to_stoat": False,
-    "last_command": "Aucune",
-    "latency": "N/A"
+    "last_command": "En attente...",
+    "latency": "Calcul en cours..."
 }
 
 # Configuration du fuseau horaire français
@@ -28,19 +28,26 @@ app = Flask(__name__)
 
 @app.route('/')
 def home(): 
-    status_stoat = "✅ Connecté" if bot_stats["connected_to_stoat"] else "❌ Déconnecté"
+    status_stoat = "✅ Connecté" if bot_stats["connected_to_stoat"] else "❌ Déconnecté (Reconnexion...)"
+    color = "#2ecc71" if bot_stats["connected_to_stoat"] else "#e74c3c"
+    
     return f"""
     <html>
-        <head><title>Stoat Bot Status</title></head>
-        <body style="font-family: sans-serif; background: #1e1e1e; color: white; padding: 20px;">
-            <h2>🦦 Stoat Bot Status</h2>
-            <hr>
-            <p>🌐 <b>Bot en ligne :</b> ✅ Oui</p>
-            <p>📡 <b>Connexion Stoat :</b> {status_stoat}</p>
-            <p>⚡ <b>Dernière commande :</b> <code>{bot_stats['last_command']}</code></p>
-            <p>🏓 <b>Ping :</b> {bot_stats['latency']}</p>
-            <br>
-            <small><i>Actualisé au chargement de la page.</i></small>
+        <head>
+            <title>Stoat Bot Status</title>
+            <meta http-equiv="refresh" content="30">
+        </head>
+        <body style="font-family: sans-serif; background: #1e1e1e; color: white; padding: 20px; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;">
+            <div style="background: #252525; padding: 30px; border-radius: 15px; border-top: 5px solid {color}; box-shadow: 0 10px 20px rgba(0,0,0,0.3);">
+                <h2 style="margin-top: 0;">🦦 Stoat Bot Status</h2>
+                <hr style="border: 0; border-top: 1px solid #444;">
+                <p>🌐 <b>Bot en ligne :</b> ✅ Oui</p>
+                <p>📡 <b>Connexion Stoat :</b> <span style="color: {color};">{status_stoat}</span></p>
+                <p>⚡ <b>Dernière commande :</b> <code style="background: #000; padding: 3px 7px; border-radius: 5px;">{bot_stats['last_command']}</code></p>
+                <p>🏓 <b>Ping :</b> <span style="color: #3498db;">{bot_stats['latency']}</span></p>
+                <br>
+                <small style="color: #777;"><i>Actualisé automatiquement toutes les 30s.</i></small>
+            </div>
         </body>
     </html>
     """
@@ -103,33 +110,18 @@ class StoatBot(revolt.Client):
         cmd = parts[0].lower()
         args = parts[1:]
 
-        # Mise à jour de la dernière commande pour le site
+        # Enregistre la commande utilisée
         bot_stats["last_command"] = cmd
 
         if cmd == "!help":
-            help_text = (
-                "### 🦦 **Menu d'Aide - Stoat Bot**\n"
-                "---\n"
-                "🎮 **Divertissement**\n"
-                "> `!8ball [question]` : Pose une question à la boule magique.\n"
-                "> `!roll [nombre]` : Lance un dé (6 faces par défaut).\n"
-                "\n"
-                "🛠️ **Utilitaires**\n"
-                "> `!ping` : Vérifie la latence du bot.\n"
-                "> `!uptime` : Affiche le temps depuis l'allumage.\n"
-                "\n"
-                "🛡️ **Modération**\n"
-                "> `!clear [nb]` : Supprime un nombre de messages.\n"
-                "---\n"
-                "*Besoin d'aide supplémentaire ? Contactez un administrateur.*"
-            )
+            help_text = "### 🦦 **Menu d'Aide**\n`!ping`, `!uptime`, `!8ball`, `!roll`, `!clear`"
             await message.reply(help_text)
 
         elif cmd == "!ping":
             s = time.time()
             m = await message.reply("🏓...")
             latency = round((time.time() - s) * 1000)
-            bot_stats["latency"] = f"{latency}ms" # Mise à jour du ping pour le site
+            bot_stats["latency"] = f"{latency}ms"
             await m.edit(content=f"🏓 Pong ! `{latency}ms`")
 
         elif cmd == "!uptime":
@@ -145,11 +137,10 @@ class StoatBot(revolt.Client):
         elif cmd == "!roll":
             try:
                 faces = int(args[0]) if args and args[0].isdigit() else 6
-                if faces < 1: faces = 6
                 resultat = random.randint(1, faces)
-                await message.reply(f"🎲 | Tu as lancé un dé à {faces} faces et obtenu : **{resultat}**")
+                await message.reply(f"🎲 | Face : **{resultat}** (Dé {faces})")
             except:
-                await message.reply("🎲 | Erreur lors du lancer de dé.")
+                await message.reply("🎲 | Erreur lors du lancer.")
 
         elif cmd == "!clear":
             if not message.author.get_permissions().manage_messages: return
