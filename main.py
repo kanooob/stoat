@@ -123,3 +123,20 @@ if __name__ == "__main__":
         asyncio.run(start())
     except KeyboardInterrupt:
         print("Arrêt du bot...")
+# --- LANCEMENT (Version Finale Corrigée) ---
+async def start():
+    token = os.environ.get("REVOLT_TOKEN")
+    if not token:
+        print("CRITICAL: REVOLT_TOKEN est introuvable !")
+        return
+
+    # On utilise la méthode la plus stable pour revolt.py
+    client = StoatBot(revolt.utils.HTTPClient(), token)
+    await client.start()
+
+if __name__ == "__main__":
+    # Lancement du serveur Web pour Render
+    threading.Thread(target=run_flask, daemon=True).start()
+    
+    # Lancement du bot
+    asyncio.run(start())
