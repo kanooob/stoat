@@ -28,14 +28,40 @@ app = Flask(__name__)
 
 @app.route('/')
 def home(): 
-    status_stoat = "✅ Connecté" if bot_stats["connected_to_stoat"] else "❌ Déconnecté (Reconnexion...)"
-    color = "#2ecc71" if bot_stats["connected_to_stoat"] else "#e74c3c"
+    is_connected = bot_stats["connected_to_stoat"]
+    status_stoat = "✅ Connecté" if is_connected else "❌ Déconnecté (Reconnexion...)"
+    color = "#2ecc71" if is_connected else "#e74c3c"
     
+    # Génération du favicon dynamique (Data URI)
+    # Cercle vert si connecté, rouge si déconnecté
+    favicon_color = "2ecc71" if is_connected else "e74c3c"
+    favicon_url = f"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%23{favicon_color}'/></svg>"
+    
+    # Script pour le son d'alerte (joue si déconnecté)
+    alert_script = ""
+    if not is_connected:
+        alert_script = """
+        <script>
+            // Joue un son d'alerte système court
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); // Note LA
+            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.2);
+        </script>
+        """
+
     return f"""
     <html>
         <head>
             <title>Stoat Bot Status</title>
             <meta http-equiv="refresh" content="30">
+            <link rel="icon" href="{favicon_url}">
         </head>
         <body style="font-family: sans-serif; background: #1e1e1e; color: white; padding: 20px; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0;">
             <div style="background: #252525; padding: 30px; border-radius: 15px; border-top: 5px solid {color}; box-shadow: 0 10px 20px rgba(0,0,0,0.3);">
@@ -48,6 +74,7 @@ def home():
                 <br>
                 <small style="color: #777;"><i>Actualisé automatiquement toutes les 30s.</i></small>
             </div>
+            {alert_script}
         </body>
     </html>
     """
