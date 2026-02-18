@@ -153,6 +153,7 @@ class StoatBot(revolt.Client):
 
     # --- COMMANDES ---
     async def on_message(self, message: revolt.Message):
+        print(f"Message reçu : {message.content}") # <--- AJOUTE CETTE LIGNE ICI
         if not message.author or message.author.bot or not message.content.startswith("!"):
             return
         
