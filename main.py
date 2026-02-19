@@ -1,181 +1,194 @@
-import os, asyncio, threading, random, time
+import os
+import asyncio
+import threading
+import random
+import time
+import logging
 from datetime import datetime
+from typing import Optional, Dict, Any
+
 import pytz
 from flask import Flask
 import revolt
 import config
 
-# --- VARIABLES D'ÉTAT ---
-bot_stats = {
-    "online": True,
-    "connected_to_stoat": False,
-    "last_command": "Aucune",
-    "latency": "0ms",
-    "start_time": time.time()
-}
-
+# --- CONFIGURATION & LOGGING ---
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("Stoat")
 FRANCE_TZ = pytz.timezone('Europe/Paris')
 
-def get_fr_time_info():
-    now = datetime.now(FRANCE_TZ)
-    offset = now.utcoffset().total_seconds() / 3600
-    utc_str = f"UTC+{int(offset)}" if offset > 0 else f"UTC{int(offset)}"
-    return now, utc_str
+class StoatStats:
+    """Gestionnaire d'état centralisé pour le dashboard."""
+    def __init__(self):
+        self.online = True
+        self.connected = False
+        self.last_command = "Aucune"
+        self.latency = "0ms"
+        self.start_time = time.time()
 
-# --- PARTIE WEB ---
+    def get_uptime_str(self) -> str:
+        upt = int(time.time() - self.start_time)
+        h, r = divmod(upt, 3600)
+        m, s = divmod(r, 60)
+        return f"{h}h {m}m {s}s"
+
+stats = StoatStats()
+
+# --- PARTIE WEB (FLASK) ---
 app = Flask(__name__)
 
 @app.route('/')
-def home(): 
-    is_connected = bot_stats["connected_to_stoat"]
-    status_stoat = "✅ Connecté" if is_connected else "❌ Déconnecté"
-    color = "#2ecc71" if is_connected else "#e74c3c"
-    upt = int(time.time() - bot_stats["start_time"])
-    h, r = divmod(upt, 3600)
-    m, s = divmod(r, 60)
-
+def home():
+    color = "#2ecc71" if stats.connected else "#e74c3c"
+    status_text = "Opérationnel" if stats.connected else "Déconnecté"
+    
     return f"""
-    <html>
-        <head><title>Stoat Bot</title><meta http-equiv="refresh" content="30"></head>
-        <body style="font-family: sans-serif; background: #121212; color: white; display: flex; justify-content: center; align-items: center; height: 100vh;">
-            <div style="background: #1e1e1e; padding: 30px; border-radius: 15px; border-top: 5px solid {color};">
-                <h2>🦦 Stoat Status</h2>
-                <p>État : <b style="color:{color};">{status_stoat}</b></p>
-                <p>Uptime : {h}h {m}m {s}s</p>
-                <p>Dernier : <code>{bot_stats['last_command']}</code> | Ping : {bot_stats['latency']}</p>
-            </div>
-        </body>
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <title>Stoat Monitor</title>
+        <meta http-equiv="refresh" content="30">
+        <style>
+            body {{ font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: #eee; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }}
+            .card {{ background: #1a1a1a; padding: 2rem; border-radius: 12px; border-left: 6px solid {color}; box-shadow: 0 10px 30px rgba(0,0,0,0.5); min-width: 320px; }}
+            h2 {{ margin-top: 0; color: {color}; }}
+            .stat-item {{ margin: 10px 0; font-size: 0.95rem; border-bottom: 1px solid #333; padding-bottom: 5px; }}
+            code {{ background: #333; padding: 2px 6px; border-radius: 4px; color: #f1c40f; }}
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h2>🦦 Stoat Dashboard</h2>
+            <div class="stat-item">État: <b>{status_text}</b></div>
+            <div class="stat-item">Uptime: <b>{stats.get_uptime_str()}</b></div>
+            <div class="stat-item">Dernière action: <code>{stats.last_command}</code></div>
+            <div class="stat-item">Latence API: <b style="color: #3498db;">{stats.latency}</b></div>
+        </div>
+    </body>
     </html>
     """
-
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
 
 # --- LE BOT STOAT ---
 class StoatBot(revolt.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.last_date = datetime.now(FRANCE_TZ).strftime("%d/%m/%Y")
 
+    def get_now(self):
+        return datetime.now(FRANCE_TZ)
+
+    async def log_to_channel(self, channel_id: str, emoji: str, text: str):
+        """Méthode de log générique et sécurisée."""
+        channel = self.get_channel(channel_id)
+        if channel:
+            try:
+                timestamp = self.get_now().strftime('%H:%M:%S')
+                await channel.send(f"{emoji} `[{timestamp}]` {text}")
+            except Exception as e:
+                logger.error(f"Erreur d'envoi de log: {e}")
+
+    # --- ÉVÉNEMENTS ---
     async def on_ready(self):
-        bot_stats["connected_to_stoat"] = True
-        await self.send_system_log("⚙️ **Système :** Bot allumé et prêt.")
+        stats.connected = True
+        await self.log_to_channel(config.SYSTEM_LOGS_ID, "⚙️", "**Système :** Stoat est en ligne.")
         asyncio.create_task(self.health_check_loop())
-        asyncio.create_task(self.daily_task())
 
-    async def send_system_log(self, text):
-        channel = self.get_channel(config.SYSTEM_LOGS_ID)
-        if channel:
-            now, _ = get_fr_time_info()
-            try: await channel.send(f"🖥️ `[{now.strftime('%H:%M:%S')}]` {text}")
-            except: print(f"Impossible d'envoyer log système: {text}")
-
-    async def send_event_log(self, text):
-        channel = self.get_channel(config.LOGS_CHANNEL_ID)
-        if channel:
-            now, _ = get_fr_time_info()
-            try: await channel.send(f"📜 `[{now.strftime('%H:%M:%S')}]` {text}")
-            except Exception as e: await self.send_system_log(f"⚠️ Erreur Envoi Log Event: {e}")
-
-    # --- ÉVÉNEMENTS (Correction Welcome/Edit) ---
     async def on_message_delete(self, message: revolt.Message):
-        try:
-            if not message.author or message.author.bot: return
-            await self.send_event_log(f"🗑️ **Message supprimé** | `{message.author.name}` dans <#{message.channel.id}>\n> {message.content}")
-        except Exception as e: await self.send_system_log(f"❌ Erreur on_message_delete: {e}")
-
-    async def on_message_edit(self, message: revolt.Message, old_content: str):
-        try:
-            if not message.author or message.author.bot: return
-            await self.send_event_log(f"📝 **Message édité** | `{message.author.name}`\n**Avant :** {old_content}\n**Après :** {message.content}")
-        except Exception as e: await self.send_system_log(f"❌ Erreur on_message_edit: {e}")
+        if message.author and not message.author.bot:
+            content = message.content[:100] + "..." if len(message.content) > 100 else message.content
+            await self.log_to_channel(config.LOGS_CHANNEL_ID, "🗑️", 
+                f"**Message supprimé** | `{message.author.name}` dans <#{message.channel.id}>\n> {content}")
 
     async def on_member_join(self, member: revolt.Member):
-        try:
-            await self.send_event_log(f"📥 **Bienvenue** | `{member.name}` a rejoint le serveur !")
-        except Exception as e: await self.send_system_log(f"❌ Erreur on_member_join: {e}")
+        await self.log_to_channel(config.LOGS_CHANNEL_ID, "📥", f"**Bienvenue** | `{member.name}` a rejoint.")
 
-    async def on_member_leave(self, member: revolt.Member):
-        try:
-            await self.send_event_log(f"📤 **Départ** | `{member.name}` a quitté le serveur.")
-        except Exception as e: await self.send_system_log(f"❌ Erreur on_member_leave: {e}")
-
-    # --- COMMANDES ---
+    # --- LOGIQUE DES COMMANDES ---
     async def on_message(self, message: revolt.Message):
-        if not message.author or message.author.bot or not message.content.startswith("!"): return
-        
+        if not message.author or message.author.bot or not message.content.startswith("!"):
+            return
+
         parts = message.content.split(" ")
         cmd = parts[0].lower()
         args = parts[1:]
-        bot_stats["last_command"] = cmd
+        stats.last_command = cmd
 
-        try:
-            if cmd == "!help":
-                await message.reply("### 🦦 **Aide**\n`!ping`, `!uptime`, `!serveurinfo`, `!8ball`, `!roll`, `!clear`")
+        # Système de routage de commandes
+        commands = {
+            "!ping": self.cmd_ping,
+            "!uptime": self.cmd_uptime,
+            "!8ball": self.cmd_8ball,
+            "!clear": self.cmd_clear,
+            "!help": self.cmd_help
+        }
 
-            elif cmd == "!ping":
-                s = time.time()
-                m = await message.reply("🏓...")
-                bot_stats["latency"] = f"{round((time.time() - s) * 1000)}ms"
-                await m.edit(content=f"🏓 Pong ! `{bot_stats['latency']}`")
+        if cmd in commands:
+            try:
+                await commands[cmd](message, args)
+            except Exception as e:
+                await self.log_to_channel(config.SYSTEM_LOGS_ID, "⚠️", f"Erreur `{cmd}`: {e}")
 
-            elif cmd == "!8ball":
-                if not args: return await message.reply("🔮 Pose une question !")
-                reps = ["Oui", "Non", "C'est possible", "Je ne pense pas", "Absolument !", "Oublie ça."]
-                await message.reply(f"🎱 | {random.choice(reps)}")
+    # --- FONCTIONS DE COMMANDES ---
+    async def cmd_ping(self, message, args):
+        start = time.time()
+        msg = await message.reply("🏓 Calcul...")
+        latency = round((time.time() - start) * 1000)
+        stats.latency = f"{latency}ms"
+        await msg.edit(content=f"🏓 Pong ! `{latency}ms`")
 
-            elif cmd == "!roll":
-                faces = int(args[0]) if args and args[0].isdigit() else 6
-                await message.reply(f"🎲 | Résultat : **{random.randint(1, faces)}** (Dé {faces})")
+    async def cmd_8ball(self, message, args):
+        if not args: return await message.reply("🔮 Pose une question !")
+        reps = ["Oui", "Non", "C'est possible", "Absolument !", "Oublie ça."]
+        await message.reply(f"🎱 | {random.choice(reps)}")
 
-            elif cmd == "!serveurinfo":
-                s = message.server
-                await message.reply(f"🏰 **{s.name}**\n👤 Owner: <@{s.owner_id}>\n👥 Membres: {len(s.members)}")
+    async def cmd_uptime(self, message, args):
+        await message.reply(f"🕒 En ligne depuis : **{stats.get_uptime_str()}**")
 
-            elif cmd == "!uptime":
-                upt = int(time.time() - bot_stats["start_time"])
-                await message.reply(f"🕒 En ligne depuis : **{upt // 3600}h {(upt % 3600) // 60}m**.")
+    async def cmd_clear(self, message, args):
+        if not message.author.get_permissions().manage_messages:
+            return await message.reply("❌ Permission manquante : `Gérer les messages`")
+        
+        amt = int(args[0]) if args and args[0].isdigit() else 10
+        await message.channel.clear(min(amt, 100))
+        await self.log_to_channel(config.SYSTEM_LOGS_ID, "🧹", f"Nettoyage de {amt} messages par `{message.author.name}`")
 
-            elif cmd == "!clear":
-                if not message.author.get_permissions().manage_messages:
-                    return await message.reply("❌ Tu n'as pas la permission `Gérer les messages`.")
-                amt = int(args[0]) if args and args[0].isdigit() else 10
-                await message.channel.clear(min(amt, 100))
-                await self.send_system_log(f"🧹 **Modération :** {amt} messages supprimés par `{message.author.name}`.")
-
-        except Exception as e:
-            await self.send_system_log(f"⚠️ **Erreur Commande `{cmd}` :**\n`{e}`")
+    async def cmd_help(self, message, args):
+        help_text = "### 🦦 **Commandes Stoat**\n`!ping`, `!uptime`, `!8ball`, `!clear` [nb]"
+        await message.reply(help_text)
 
     # --- MAINTENANCE ---
     async def health_check_loop(self):
+        """Vérifie la connexion toutes les 5 minutes."""
         while True:
             await asyncio.sleep(300)
             try:
                 await self.fetch_user(self.user.id)
-                bot_stats["connected_to_stoat"] = True
+                stats.connected = True
             except:
-                bot_stats["connected_to_stoat"] = False
+                stats.connected = False
+                logger.warning("Connexion perdue. Tentative de reconnexion...")
                 await self.stop()
 
-    async def daily_task(self):
-        while True:
-            await asyncio.sleep(3600)
-            await self.stop()
+# --- RUNNER ---
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
-# --- LANCEMENT ---
 async def start_bot():
     token = os.environ.get("REVOLT_TOKEN")
     while True:
-        bot_stats["connected_to_stoat"] = False
+        stats.connected = False
         try:
             async with revolt.utils.client_session() as session:
                 client = StoatBot(session, token, api_url="https://api.stoat.chat")
                 await client.start()
         except Exception as e:
-            print(f"Relance... {e}")
+            logger.error(f"Relance du bot dans 15s... Erreur: {e}")
             await asyncio.sleep(15)
 
 if __name__ == "__main__":
+    # Flask en thread séparé
     threading.Thread(target=run_flask, daemon=True).start()
-    asyncio.run(start_bot())
+    # Bot en boucle principale
+    try:
+        asyncio.run(start_bot())
+    except KeyboardInterrupt:
+        logger.info("Arrêt manuel.")
